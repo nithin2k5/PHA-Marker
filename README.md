@@ -1,0 +1,280 @@
+# Cable Colour and Stripe Inspection
+
+Desktop prototype (Python, Tkinter/ttk, OpenCV, NumPy, Pillow) that checks a cable lying in a
+fixture: **body colour**, **number of transverse stripes**, **stripe colour** and optionally stripe
+**spacing/width**, and returns **PASS / FAIL / INDETERMINATE** (plus separate **NO CABLE** and
+**CAMERA ERROR** states, which can never become PASS).
+
+It uses classical image processing only. It has been exercised on one real reference frame (a black
+cable with three narrow grey stripes and "HCA" print in a metal fixture), edited copies of that
+frame, and synthetic scenes. **That is not evidence of production accuracy**. See
+[Validation](#validation-before-production).
+
+No database or automatic data logging is included (by request). Use **Export Result** to save the
+current result (JSON plus raw, annotated and stripe images) when you need a record.
+
+---
+
+## Installation
+
+Requires Python 3.10+ (tested with 3.12 on Windows 11).
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt   # opencv-python, numpy, Pillow
+pip install -r requirements-dev.txt   # + pytest, for the tests
+python main.py
+```
+
+Tkinter ships with the python.org installers. On Linux, install `python3-tk`.
+
+Development images: `python tools/make_samples.py` writes synthetic scenes and an automatic-mode
+video to `samples/synthetic/`. The **Demo Scene** menu in the app also generates scenes on the fly.
+
+## Operator workflow
+
+1. **Select a recipe** (cable type). Cable colour, stripe colour and stripe count (default 3) are
+   separate settings.
+2. **Position the cable** in the fixture (start camera, or open an image/video).
+3. **Inspect**: the app collects several fresh, stable frames after the trigger.
+4. **Result**: a large green PASS, red FAIL (with alarm) or amber INDETERMINATE, with the reason,
+   e.g. `missing stripe: found 2, expected 3`, `stripe 2 wrong colour: expected white, observed red`,
+   `illumination differs from teach`.
+5. **Save** if needed (**Export Result**) and **acknowledge** a failure alert.
+6. **Next cable**: the result stays latched until the next cycle starts. In automatic mode, the next
+   inspection starts only after the cable has been **removed** and a new one has appeared.
+
+### Setting up a new cable type
+
+1. **New Recipe** (copies the regions and settings of the current one; colours must be taught again).
+2. **Draw ROI**: drag a rectangle around the cable, with margin, covering a long straight section.
+   **Draw Stripe Region**: a smaller rectangle containing all stripes, with room for position
+   variation. Drags on the resized preview are mapped to original-image pixels.
+3. Choose the cable colour, stripe colour and stripe count.
+4. **Teach Colours** with a known-good cable: use **Auto sample** (the detector finds body and stripes)
+   and/or drag patches over clean body and stripe areas. Use **Grab new frame** with several cables
+   and positions. Teaching stores the reference colours and tolerances, cable width, stripe pitch and
+   width, and the fixture lighting reference.
+5. **Settings**: detection thresholds, optional spacing/width checks (`check_spacing`,
+   `check_width`, tolerances), `mm_per_px` for physical units, cycle timing and camera settings.
+6. **Save Recipe**. The version number increments on every save and is recorded in every result.
+
+**Colour Presets** are the editable named colours (black, white, red ... pale yellow) used to name
+observed colours and as defaults before teaching. The shipped Lab values are generic; calibrate them
+with your camera (grab frame, drag patches, "Calibrate selected").
+
+## Controls
+
+| Control | Purpose |
+|---|---|
+| Start/Stop Camera | USB camera (index box; DirectShow on Windows) |
+| Open Image/Video, ◀ ▶ | development sources; select several images and step through them (also ←/→ keys, or `python main.py img1 img2 ...`) |
+| Demo Scene | generated synthetic scenes |
+| Draw ROI / Draw Stripe Region | regions in original-image pixels (Esc cancels) |
+| Teach Colours | teach from a good sample (auto and/or patches, multiple frames) |
+| Save / New / Delete Recipe | recipe management (`config/recipes.json`) |
+| INSPECT | one inspection cycle (several fresh, stable frames, then one result) |
+| Start/Stop Automatic Inspection | inspect each new cable once; re-arms only after removal |
+| Acknowledge Alert | stops the flashing banner and repeating beep after a FAIL / CAMERA ERROR |
+| Export Result | saves the latched result: JSON, raw, annotated and stripe images |
+| Identify type | also compares with all recipes: a type only if exactly one matches, else UNKNOWN / AMBIGUOUS |
+
+Camera capture and processing run on background threads. The UI thread only drains a queue with
+`after()`, so the window stays responsive.
+
+## How detection works
+
+All steps live in `cable_inspection/detection.py`:
+
+1. **Cable localisation (colour-independent).** Within the ROI, search the rotation (±12°) at
+   which the Lab gradient across the axis forms two strong parallel edges. A candidate edge pair is
+   only accepted as a cable if
+   * its width is plausible (within ±20% of the taught width),
+   * it has no longitudinal edge inside it as strong as its outline (stripes are transverse;
+     specular highlights, which are thin ridges, are allowed), and
+   * its interior is uniform along its length (fixture background is not).
+
+   The edges are then refined locally around the stripe region, because real cables sag slightly.
+2. **Presence** uses edge strength, signal-to-noise, agreement between 12 slices along the cable and
+   width, never the expected colour. A wrong-colour cable is still "present", and an empty fixture is
+   NO CABLE.
+3. **Cable mask.** This is the geometric band between the edges, so it includes the body and the
+   stripes whatever their colour. Nothing is thresholded "for black".
+4. **Difference map.** A local body reference (per-row running median along the cable, robust to
+   stripes and print) handles cylindrical shading and reflections that drift along the cable. Each
+   pixel's CIEDE2000 difference from it is computed. Saturated pixels are masked.
+5. **Stripe candidates** are found **before** any colour check:
+   * columns where the difference covers ≥65% of the cable width (profile along the axis);
+   * fragments closer than `merge_gap_px` are merged, but not neighbouring stripes;
+   * candidates are rejected for wrong width, low fill, tilt (oblique marks or other wires), or
+     being part of a larger connected glyph (printed characters);
+   * objects crossing the cable are detected when the silhouette edge is lost and the object
+     continues outside the cable. These give INDETERMINATE.
+
+   With a taught pitch, candidates far from the main stripe group (e.g. the printed legend) are
+   reported but not counted.
+6. **Measurement.** Body colour comes from band pixels near the stripes, excluding stripes, print and
+   glare. Each stripe gets its colour, width, position and spacing (pixels, or mm when `mm_per_px` is
+   set). Rejected candidates are listed with their reason.
+7. **Image quality.** Stripe-edge blur width, glare that blinds whole columns, darkness or
+   saturation, stripes cut by the region border, obstruction and fixture-lighting change against the
+   teach reference all give **INDETERMINATE**.
+
+Colour comparison is in Lab, never raw RGB or hue alone (`colors.py`):
+
+* **Achromatic** colours (black, grey, white) compare lightness and require low chroma.
+* **Chromatic** colours use CIEDE2000 against a taught tolerance.
+* **Pale** colours additionally require a matching hue angle.
+
+A colour between 1.0× and 1.35× the tolerance is *marginal* and gives INDETERMINATE. A colour that
+fits another named colour better than the expected one is not accepted.
+
+### Verdict rules (`evaluation.py`)
+
+* NO CABLE: presence failed.
+* INDETERMINATE: unreliable image, or a marginal colour.
+* FAIL: a clear mismatch (body colour, stripe count, stripe colour, enabled geometry check), with
+  every specific reason listed.
+* PASS: everything enabled matches.
+
+### Inspection cycle (`cycle.py`)
+
+* Only frames captured after the trigger are used.
+* `frames_required` (default 5) consecutive **stable** frames are needed, where the cable has not
+  moved by more than `stability_px` / `stability_deg`.
+* Disagreeing frames give INDETERMINATE.
+* No stable set within `cycle_timeout_s` gives INDETERMINATE (timeout).
+* A camera error aborts the cycle and **replaces any latched result** with CAMERA ERROR. After
+  recovery, a fresh inspection is required, so an earlier PASS is never reused.
+
+## Findings from the reference frame (and what they imply)
+
+The supplied frame (`samples/real/reference.png`, kept out of git) was used to tune the method.
+`tests/test_real_image.py` checks, after teaching on that frame:
+
+| Variant | Verdict |
+|---|---|
+| good cable, stripe region including the "HCA" print | PASS (print rejected) |
+| ROI shifted, mild blur | PASS |
+| middle stripe removed / extra stripe / stripe recoloured | FAIL with the specific reason |
+| recipe expecting a blue body | FAIL |
+| light ×0.45, ×0.6, ×1.3; heavy blur; a finger over the stripes | INDETERMINATE |
+| ROI on the empty fixture | NO CABLE |
+
+A second set of eight frames (`samples/real/set2/`) shows the same cable with green, red, orange,
+pink, blue, grey, white and yellow stripes. The grey recipe was taught only on `reference.png`.
+Judged by that recipe, with **Identify type** on and one recipe per colour taught with
+`tools/teach_from_images.py`:
+
+| Frame | Verdict (grey recipe) | Identified type |
+|---|---|---|
+| grey | PASS | EXAMPLE-BLK-3xGRY |
+| green / red / orange / pink / blue / yellow | FAIL, `stripes 1, 2, 3 wrong colour: expected grey, observed <colour>` | the matching BLK-3x… recipe |
+| white | INDETERMINATE, `stripe saturated - reduce exposure` | INDETERMINATE |
+
+Each colour recipe was taught on the frame it was tested on, so the self-matches are not
+independent. What these frames do show is that the colours separate cleanly from each other and
+that the print is rejected in every frame. The white frame's stripes are pure 255 (clipped), so their
+real colour cannot be measured: with the production camera, reduce exposure until white stripes are
+below saturation.
+
+The defect variants are edited copies of one image, so they are a regression check, not a measure
+of accuracy. What the frame shows about the optics:
+
+* The cable is only **~17–22 px** wide, and the stripes are **~6–8 px** wide with a **~18 px**
+  pitch. The stripe edges are soft (transition about 4.5–5 px). That is close to the limit for
+  separating three stripes reliably.
+* Left of the stripes, the black cable lies over a **dark slot**, so one silhouette edge is
+  invisible. The detector tolerates one missing edge, but contrast behind the cable matters.
+* The stripes are low-contrast grey (L\* ≈ 47 against a body at L\* ≈ 18). The white print is
+  brighter than the stripes (L\* 60–70), so print can only be separated by geometry: its shape,
+  and its distance from the stripe group.
+* The frame is a screen capture with an overlay. Teach and inspect on **native camera frames**.
+
+## Hardware and setup guidance
+
+* **Resolution / magnification**: aim for the cable **≥ 40 px wide**, each stripe ≥ 8–10 px and gaps
+  ≥ 6 px in the image. Bring the camera closer or use a lens with more magnification rather than a
+  higher-resolution sensor viewing the whole machine. A 1280×720 or 1920×1080 UVC camera is enough
+  when the field of view covers about 5–10× the stripe group length.
+* **Lighting**: constant, diffuse, high-CRI white LED (dome, or two diffused bars at about 45°),
+  shielded from daylight and room lights. Avoid direct reflections into the lens; a polariser and
+  analyser pair helps on glossy insulation and metal. Do not let the stripes saturate.
+* **Background**: a matte, uniform background behind the inspection zone, contrasting with all cable
+  colours you run (mid-grey works for black and white cables). Avoid the dark slot behind a black
+  cable.
+* **Camera settings**: fix exposure, gain, white balance and focus (manual) and save them in the
+  recipe (`camera` section). Auto exposure or auto white balance shifts colours between cables.
+  Exposure should be short enough that a placed cable is sharp. Check the "stripe edge width" in the
+  export (≤ 4–5 px).
+* **Fixture**: repeatable position. The software tolerates small shifts and about ±12° of rotation
+  (larger needs a larger ROI), but the stripe group must stay inside the stripe region with margin.
+
+## Validation before production
+
+1. Collect **separate** sets: calibration images (teaching only) and evaluation images (never used
+   for teaching), from different cables, shifts and days.
+2. Evaluation set per recipe: hundreds of good cables, and every defect class (each wrong colour,
+   missing stripe, extra stripe, wrong cable types), plus empty fixture, glare, obstruction and
+   misplacement cases.
+   To teach recipes offline from saved good images:
+   `python tools/teach_from_images.py --name BLK-3xGRN --base EXAMPLE-BLK-3xGRY --body black --stripe green --calibrate-presets good_green_*.png`
+3. Run `python tools/evaluate.py --recipe NAME --teach calib/good --data dataset`, with
+   `dataset/{pass,fail,no_cable}/`. It reports:
+   * **false accept rate**: bad or empty → PASS, the critical number, which should be 0 with a
+     confidence bound;
+   * **false reject rate**: good → FAIL;
+   * the **INDETERMINATE** rate per class (operator load).
+
+   `--synthetic` runs the same harness on generated scenes as a self-check only.
+4. Tune thresholds in **Settings** on the calibration set only, then re-measure on the evaluation set.
+5. Re-validate after any change of camera, lens, lighting, fixture or cable supplier.
+
+## Limitations and where better optics or a trained model are needed
+
+* **One camera sees one side.** Stripes or defects on the hidden side of the cable are not
+  inspected. Full circumference inspection needs 2–3 views (mirrors or extra cameras) or rotating
+  the cable.
+* Print that has stripe-like geometry *inside* the stripe group (rather than next to it) cannot be
+  told apart from a stripe of the wrong colour by geometry alone. It would FAIL as a wrong-colour or
+  extra stripe.
+* With `group_stripes` enabled, an extra stripe placed far (more than 2.5 pitches) from the stripe
+  group is treated like print and not counted. Disable it if that defect matters more than print in
+  the region.
+* Very low-contrast combinations (e.g. a dark blue stripe on a black body, white on pale grey) need
+  better lighting or a different wavelength, and may stay INDETERMINATE or undetected.
+* Strongly curved or moving cables are out of scope (the cable is assumed approximately straight
+  and stationary).
+* Where clean optics still leave ambiguous cases (heavy print near stripes, dirty or worn
+  insulation, many cable types), a trained segmentation or classification model on the
+  straightened stripe crop is the natural next step. The pipeline already produces those crops
+  (magnified view and exports) for building a labelled dataset.
+
+## Project structure
+
+```
+main.py                         entry point
+cable_inspection/
+  config.py                     paths and default thresholds
+  colors.py                     Lab, CIEDE2000, colour references (achromatic/pale handling)
+  presets.py                    editable named colour presets
+  recipes.py                    versioned recipes (regions, calibration, camera, thresholds)
+  calibration.py                teach from good sample (patches and auto samples)
+  camera.py                     USB/video/image sources, capture thread, reconnect
+  detection.py                  localisation, presence, stripe detection, measurements
+  evaluation.py                 PASS/FAIL/INDETERMINATE rules, identification
+  cycle.py                      inspection cycle state machine (latching, auto re-arm)
+  processing.py                 processing thread (camera -> detection -> cycle -> UI queue)
+  annotate.py, export.py, alerts.py, synthetic.py
+  ui/app.py, ui/dialogs.py, ui/widgets.py
+config/recipes.json             sample recipes (DEMO for synthetic scenes; EXAMPLE-BLK-3xGRY and BLK-3x<colour> for the fixture frames)
+config/colour_presets.json      editable colour presets
+tools/evaluate.py               false accept / reject / indeterminate measurement
+tools/make_samples.py           synthetic development images and video
+tools/teach_from_images.py      teach a recipe (and calibrate presets) from good image files
+tests/                          pytest suite (synthetic scenarios, cycle, camera, real frame)
+```
+
+Run the tests with `python -m pytest -q`. The real-frame tests are skipped if
+`samples/real/reference.png` is absent.
