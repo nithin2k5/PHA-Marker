@@ -190,8 +190,14 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
                 marg.append(f"stripe {st.index} colour marginal vs {recipe.stripe_colour} (score {d:.2f})")
             else:
                 st.colour_ok = False
-                fails.append(f"stripe {st.index} wrong colour: expected {recipe.stripe_colour}, "
-                             f"observed {st.colour_name}")
+        # one reason per observed colour: "stripes 1, 2, 3 wrong colour: ..."
+        wrong: dict[str, list[int]] = {}
+        for st in m.stripes:
+            if st.colour_ok is False:
+                wrong.setdefault(st.colour_name, []).append(st.index)
+        for colour, idx in wrong.items():
+            which = f"stripe {idx[0]}" if len(idx) == 1 else "stripes " + ", ".join(map(str, idx))
+            fails.append(f"{which} wrong colour: expected {recipe.stripe_colour}, observed {colour}")
         if m.stripes:
             bad = [st.index for st in m.stripes if st.colour_ok is False]
             v.checks.append(("stripe colours", not bad if all(s.colour_ok is not None for s in m.stripes) else None,
