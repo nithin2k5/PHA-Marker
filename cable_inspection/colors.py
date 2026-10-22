@@ -101,7 +101,7 @@ def robust_lab(pixels_lab: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 ACHROMATIC_CHROMA = 9.0     # Lab chroma below which a colour is treated as black/grey/white
 MIN_TOL_CHROMATIC = 8.0     # minimum CIEDE2000 tolerance for chromatic colours
-MIN_TOL_LIGHTNESS = 9.0     # minimum lightness tolerance for achromatic colours
+MIN_TOL_LIGHTNESS = 12.0    # minimum lightness tolerance for achromatic colours
 PALE_CHROMA = 25.0          # chromatic colours below this chroma get an extra hue check
 
 
