@@ -4,13 +4,13 @@
     {
       "name": "black",
       "lab": [
-        14.0,
-        0.0,
-        0.0
+        28.16,
+        -0.69,
+        -0.07
       ],
-      "tol": 12.0,
+      "tol": 8.0,
       "achromatic": true,
-      "tol_l": 14.0,
+      "tol_l": 12.0,
       "max_chroma": 12.0,
       "hue_tol_deg": null
     },
@@ -43,66 +43,66 @@
     {
       "name": "red",
       "lab": [
-        44.0,
-        60.0,
-        40.0
+        37.0,
+        41.53,
+        20.5
       ],
-      "tol": 14.0,
+      "tol": 8.0,
       "achromatic": false,
       "tol_l": 14.0,
-      "max_chroma": 80.11,
+      "max_chroma": 54.31,
       "hue_tol_deg": null
     },
     {
       "name": "orange",
       "lab": [
-        64.0,
-        40.0,
-        64.0
+        46.83,
+        35.68,
+        48.67
       ],
-      "tol": 14.0,
+      "tol": 8.0,
       "achromatic": false,
       "tol_l": 14.0,
-      "max_chroma": 83.47,
+      "max_chroma": 68.35,
       "hue_tol_deg": null
     },
     {
       "name": "yellow",
       "lab": [
-        86.0,
-        -4.0,
-        78.0
+        73.07,
+        -7.3,
+        27.31
       ],
-      "tol": 14.0,
+      "tol": 9.07,
       "achromatic": false,
       "tol_l": 14.0,
-      "max_chroma": 86.1,
+      "max_chroma": 36.27,
       "hue_tol_deg": null
     },
     {
       "name": "green",
       "lab": [
-        50.0,
-        -48.0,
-        28.0
+        43.36,
+        -31.49,
+        21.36
       ],
-      "tol": 14.0,
+      "tol": 10.17,
       "achromatic": false,
       "tol_l": 14.0,
-      "max_chroma": 63.57,
+      "max_chroma": 46.05,
       "hue_tol_deg": null
     },
     {
       "name": "blue",
       "lab": [
-        38.0,
-        18.0,
-        -58.0
+        45.9,
+        13.48,
+        -47.42
       ],
-      "tol": 14.0,
+      "tol": 8.0,
       "achromatic": false,
       "tol_l": 14.0,
-      "max_chroma": 68.73,
+      "max_chroma": 57.3,
       "hue_tol_deg": null
     },
     {
@@ -134,14 +134,14 @@
     {
       "name": "pink",
       "lab": [
-        72.0,
-        38.0,
-        4.0
+        50.86,
+        40.19,
+        -4.97
       ],
-      "tol": 12.0,
+      "tol": 8.0,
       "achromatic": false,
       "tol_l": 14.0,
-      "max_chroma": 46.21,
+      "max_chroma": 48.49,
       "hue_tol_deg": null
     },
     {
