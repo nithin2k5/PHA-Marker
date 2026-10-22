@@ -174,7 +174,7 @@ class ColourReference:
         if achromatic:
             between = float(np.max(np.abs(sample_meds[:, 0] - med[0]))) if len(sets) > 1 else 0.0
             within = float(np.percentile(np.abs(all_px[:, 0] - med[0]), 90))
-            tol_l = max(MIN_TOL_LIGHTNESS, 3.0 * between, 0.6 * within) * tol_scale
+            tol_l = max(MIN_TOL_LIGHTNESS, 2.5 * between, min(0.3 * within, 15.0)) * tol_scale
             c_px = np.percentile(chroma(all_px), 90)
             max_chroma = max(12.0, float(c_px) + 6.0)
             return cls(name, med, tol=MIN_TOL_CHROMATIC, achromatic=True,
@@ -182,7 +182,7 @@ class ColourReference:
         de_between = delta_e_2000(sample_meds, med)
         between = float(np.max(de_between)) if len(sets) > 1 else 0.0
         within = float(np.percentile(delta_e_2000(all_px, med), 90))
-        tol = max(MIN_TOL_CHROMATIC, 3.0 * between, 0.6 * within) * tol_scale
+        tol = max(MIN_TOL_CHROMATIC, 2.5 * between, min(0.3 * within, 15.0)) * tol_scale
         return cls(name, med, tol=tol, achromatic=False)
 
     # -- serialisation ------------------------------------------------------
