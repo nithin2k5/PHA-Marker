@@ -146,19 +146,22 @@ class App:
                         command=self._sound_changed).pack(side="left")
 
     def _build_body(self):
-        body = ttk.Panedwindow(self.root, orient="horizontal")
+        body = ttk.Frame(self.root)
         body.pack(fill="both", expand=True, padx=6, pady=4)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
 
         left = ttk.Frame(body)
         self.preview = ImageCanvas(left)
         self.preview.pack(fill="both", expand=True)
         self.preview_hint = ttk.Label(left, text="Start the camera, open an image/video or load a demo scene.")
         self.preview_hint.pack(anchor="w")
-        body.add(left, weight=3)
+        left.grid(row=0, column=0, sticky="nsew")
 
-        right = ttk.Frame(body, width=440)
-        body.add(right, weight=1)
-        self.root.after(200, lambda: body.sashpos(0, max(600, self.root.winfo_width() - 480)))
+        # fixed-width side panel; the preview gets all remaining space
+        right = ttk.Frame(body, width=460)
+        right.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+        right.pack_propagate(False)
 
         # result indicator
         self.result_lbl = tk.Label(right, text="READY", font=("Segoe UI", 28, "bold"),
@@ -289,7 +292,8 @@ class App:
         regions = "set" if r.has_regions else "NOT SET"
         self.recipe_info.config(text=(f"version {r.version}{' (unsaved changes)' if self.dirty else ''}\n"
                                       f"regions: {regions}   colours: {cal}\n"
-                                      f"cable width: {r.cable_width_px or '-'} px"))
+                                      f"cable width: {f'{r.cable_width_px:.1f}' if r.cable_width_px else '-'} px   "
+                                      f"stripe pitch: {r.geometry.get('expected_spacing_px') or '-'} px"))
 
     def save_recipe(self):
         if self.recipe is None:
