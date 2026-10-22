@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from .. import APP_NAME, __version__
 from marker_engine.alerts import AlertSounder
 from marker_engine.annotate import annotate, magnified_view
-from marker_engine.camera import CameraWorker, FrameStore, ImageSource, make_source
+from marker_engine.camera import CameraWorker, FrameStore, make_source
 from marker_engine.config import EXPORT_DIR, SAMPLES_DIR
 from marker_engine.cycle import ACQUIRING, WAIT_CABLE, WAIT_REMOVAL
 from marker_engine.evaluation import CAMERA_ERROR, FAIL, INDETERMINATE, NO_CABLE, PASS
@@ -19,7 +19,6 @@ from marker_engine.geometry import rect_contains
 from marker_engine.presets import PresetStore
 from marker_engine.processing import InspectionProcessor
 from marker_engine.recipes import Recipe, RecipeStore
-from marker_engine import synthetic
 from .dialogs import PresetDialog, SettingsDialog, TeachDialog
 from .widgets import ImageCanvas
 
@@ -32,20 +31,6 @@ STATUS_STYLE = {
     "READY": ("#3c4043", "white"),
     "INSPECTING": ("#1a73e8", "white"),
 }
-
-DEMO_SCENES = {
-    "Good cable (3 white stripes)": {},
-    "Good cable, rotated 4 deg + print": {"angle_deg": 4, "text_in_region": True, "seed": 3},
-    "Wrong stripe colour (red)": {"stripe": "red"},
-    "Wrong body colour (blue)": {"body": "blue"},
-    "Missing stripe": {"stripe_count": 2},
-    "Extra stripe": {"stripe_count": 4},
-    "Glare on stripes": {"glare": 1.0},
-    "Obstructed": {"occlusion": True},
-    "Blurred": {"blur": 3.0},
-    "No cable": {"no_cable": True},
-}
-
 
 class App:
     def __init__(self, root: tk.Tk, recipes: RecipeStore | None = None, presets: PresetStore | None = None):
@@ -118,12 +103,6 @@ class App:
         ttk.Button(row1, text="\u25b6", width=3, command=lambda: self.step_file(1)).pack(side="left", padx=(0, 2))
         self.root.bind("<Left>", lambda e: self.step_file(-1))
         self.root.bind("<Right>", lambda e: self.step_file(1))
-        demo = ttk.Menubutton(row1, text="Demo Scene")
-        menu = tk.Menu(demo, tearoff=False)
-        for name in DEMO_SCENES:
-            menu.add_command(label=name, command=lambda n=name: self.load_demo(n))
-        demo["menu"] = menu
-        demo.pack(side="left", padx=2)
         ttk.Separator(row1, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(row1, text="Draw ROI", command=lambda: self.draw_region("roi")).pack(side="left", padx=2)
         ttk.Button(row1, text="Draw Stripe Region",
@@ -162,7 +141,7 @@ class App:
         left = ttk.Frame(body)
         self.preview = ImageCanvas(left)
         self.preview.pack(fill="both", expand=True)
-        self.preview_hint = ttk.Label(left, text="Start the camera, open an image/video or load a demo scene.")
+        self.preview_hint = ttk.Label(left, text="Start the camera or open image(s)/video.")
         self.preview_hint.pack(anchor="w")
         left.grid(row=0, column=0, sticky="nsew")
 
@@ -432,17 +411,6 @@ class App:
         path = self.files[self.file_idx]
         self.file_lbl.config(text=f"{self.file_idx + 1}/{len(self.files)} {Path(path).stem[:12]}")
         self._start_source(make_source(path), Path(path).name)
-
-    def load_demo(self, name: str):
-        scene = synthetic.make(**DEMO_SCENES[name])
-        self._start_source(ImageSource(scene.image, name=f"demo: {name}"), name)
-        r = self.recipe
-        if r is not None and not r.has_regions:
-            # demo scenes share the nominal fixture geometry
-            r.roi, r.inspection_region = scene.roi, scene.inspection_region
-            r.image_size = (scene.image.shape[1], scene.image.shape[0])
-            self.dirty = True
-            self._push_recipe()
 
     def _current_frame(self):
         f = self.store.latest()

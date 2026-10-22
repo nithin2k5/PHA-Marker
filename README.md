@@ -30,9 +30,8 @@ python main.py
 Tkinter ships with the python.org installers. On Linux, install `python3-tk`.
 
 Development images: `python tools/make_samples.py` writes synthetic scenes and an automatic-mode
-video to `samples/synthetic/`. The **Demo Scene** menu in the app also generates scenes on the fly; they use a different (synthetic)
-geometry, so judge them with a recipe whose regions were drawn on a demo scene, not with
-EXAMPLE-BLK-3xGRY.
+video to `samples/synthetic/`. They use a synthetic geometry, so judge them with a recipe whose
+regions were drawn on them, not with EXAMPLE-BLK-3xGRY.
 
 ## Operator workflow
 
@@ -72,7 +71,6 @@ with your camera (grab frame, drag patches, "Calibrate selected").
 |---|---|
 | Start/Stop Camera | USB camera (index box; DirectShow on Windows) |
 | Open Image/Video, ◀ ▶ | development sources; select several images and step through them (also ←/→ keys, or `python main.py [--recipe=NAME] img1 img2 ...`) |
-| Demo Scene | generated synthetic scenes |
 | Draw ROI / Draw Stripe Region | regions in original-image pixels (Esc cancels) |
 | Teach Colours | teach from a good sample (auto and/or patches, multiple frames) |
 | Save / New / Delete Recipe | recipe management (`config/recipes.json`) |
