@@ -253,9 +253,16 @@ of accuracy. What the frame shows about the optics:
 
 ## Project structure
 
+The inspection logic lives in **`marker_engine/`**, a standalone package with no UI code (needs
+only numpy and opencv-python). Copy that folder into another project to reuse it; see
+[`marker_engine/README.md`](marker_engine/README.md). The Tkinter application in
+`cable_inspection/` is a thin UI on top of it.
+
 ```
-main.py                         entry point
-cable_inspection/
+main.py                         entry point (desktop app)
+cable_inspection/ui/            Tkinter application: app.py, dialogs.py, widgets.py
+marker_engine/                  standalone engine (copy this folder to reuse)
+  inspector.py                  Inspector facade: inspect / annotate / teach
   config.py                     paths and default thresholds
   colors.py                     Lab, CIEDE2000, colour references (achromatic/pale handling)
   presets.py                    editable named colour presets
@@ -267,7 +274,6 @@ cable_inspection/
   cycle.py                      inspection cycle state machine (latching, auto re-arm)
   processing.py                 processing thread (camera -> detection -> cycle -> UI queue)
   annotate.py, export.py, alerts.py, synthetic.py
-  ui/app.py, ui/dialogs.py, ui/widgets.py
 config/recipes.json             sample recipes (DEMO for synthetic scenes; EXAMPLE-BLK-3xGRY and BLK-3x<colour> for the fixture frames)
 config/colour_presets.json      editable colour presets
 tools/evaluate.py               false accept / reject / indeterminate measurement
