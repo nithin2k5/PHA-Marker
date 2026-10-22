@@ -444,6 +444,12 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
         return m
     if m.occluded_frac > cfg["occlusion_max"]:
         m.issues.append(f"cable obstructed in inspection region ({m.occluded_frac:.0%} of edges missing)")
+    # The stripe region must actually contain the cable; otherwise "0 stripes"
+    # would be a setup error reported as a missing-stripe FAIL.
+    ry0, ry1 = float(sc[:, 1].min()), float(sc[:, 1].max())
+    overlap = max(0.0, min(ry1, bot) - max(ry0, top))
+    if overlap < 0.5 * width:
+        m.issues.append("cable is outside the stripe region - redraw the stripe region over the stripes")
 
     # per-column silhouette edge strength relative to the mean edge (for the crossing test)
     edge_cols = []

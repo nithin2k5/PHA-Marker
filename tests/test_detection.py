@@ -113,3 +113,13 @@ def test_identification(taught_recipe, presets):
     dup.name = "DUPLICATE"
     m = detect(synthetic.make(seed=20).image, base)
     assert identify(m, recipes + [dup], presets)[0] == AMBIGUOUS
+
+
+def test_stripe_region_off_the_cable_is_not_a_fail(taught_recipe, presets):
+    """A misplaced stripe region is a setup problem, never 'missing stripes'."""
+    r = taught_recipe.copy()
+    x, y, w, h = r.inspection_region
+    r.inspection_region = (x + 150, y + 110, w, h)   # below the cable, away from the stripes
+    v = evaluate(detect(synthetic.make(seed=20).image, r), r, presets)
+    assert v.status == INDETERMINATE
+    assert any("outside the stripe region" in s for s in v.reasons)
