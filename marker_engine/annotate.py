@@ -44,6 +44,8 @@ def draw_regions(img: np.ndarray, roi=None, region=None) -> np.ndarray:
 def annotate(frame: np.ndarray, m: Measurement | None, status: str | None = None,
              roi=None, region=None) -> np.ndarray:
     img = frame.copy()
+    if m is not None and m.roi_used is not None:
+        roi, region = m.roi_used, m.region_used
     draw_regions(img, roi, region)
     if m is not None:
         if m.cable_polygon is not None:

@@ -35,6 +35,7 @@ import cv2
 import numpy as np
 
 from .colors import bgr_to_lab, delta_e_2000, robust_lab
+from .alignment import Alignment, aligned_regions
 from .geometry import adapt_rect_to_image, crop, invert_affine, rotation_matrix, transform_points
 
 PRESENT, ABSENT, UNCERTAIN = "PRESENT", "ABSENT", "UNCERTAIN"
@@ -90,6 +91,10 @@ class Measurement:
     straight_view: np.ndarray | None = None   # straightened inspection crop (BGR) for magnified view
     straight_offset: tuple[int, int] = (0, 0)  # (x0, y0) of straight_view in straightened ROI
     profile: np.ndarray | None = None
+    roi_used: tuple | None = None              # regions actually used (after fixture alignment)
+    region_used: tuple | None = None
+    alignment: Alignment | None = None
+    px_scale: float = 1.0                       # this frame's pixels per taught pixel
     elapsed_ms: float = 0.0
 
     @property
@@ -229,6 +234,18 @@ def _merge_runs(runs, gap: int):
 
 def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Measurement:
     """Analyse one BGR frame using the regions and thresholds of ``recipe``."""
+    m = _detect(frame, recipe, expected_width)
+    a = m.alignment
+    if a is not None and a.score < recipe.detection.get("align_min_score", 0.4) and m.presence == ABSENT:
+        # no cable where the regions were drawn AND the fixture was not recognised:
+        # the camera may have moved, so "no cable" cannot be trusted
+        m.presence = UNCERTAIN
+        m.issues.append(f"fixture not recognised (match {a.score:.2f}) - camera moved? "
+                        "redraw the regions and teach again")
+    return m
+
+
+def _detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Measurement:
     t0 = time.perf_counter()
     if frame is None or frame.ndim != 3:
         raise SetupError("invalid frame")
@@ -236,21 +253,38 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
         raise SetupError("draw the cable ROI and stripe inspection region first")
     cfg = recipe.detection
     ih, iw = frame.shape[:2]
-    roi = adapt_rect_to_image(recipe.roi, recipe.image_size, iw, ih)
-    insp = adapt_rect_to_image(recipe.inspection_region, recipe.image_size, iw, ih)
+    m = Measurement()
+
+    # -- regions: follow the fixture if a teach-time template exists ----------
+    align = aligned_regions(frame, recipe) if cfg.get("auto_align", True) else None
+    if align is not None:
+        roi, insp, a = align
+        m.alignment = a
+        unit_w = unit_h = a.scale            # teach-frame pixels -> this frame
+    if align is not None and m.alignment.score < cfg.get("align_min_score", 0.4):
+        # weak match (heavy glare, darkness, obstruction or a moved camera):
+        # use the regions as drawn; an empty result is then not trusted below
+        m.notes.append(f"fixture match low ({m.alignment.score:.2f}); using regions as drawn")
+        align = None
+    if align is None:
+        roi = adapt_rect_to_image(recipe.roi, recipe.image_size, iw, ih)
+        insp = adapt_rect_to_image(recipe.inspection_region, recipe.image_size, iw, ih)
+        unit_w = iw / recipe.image_size[0] if recipe.image_size else 1.0
+        unit_h = ih / recipe.image_size[1] if recipe.image_size else 1.0
+    m.roi_used, m.region_used = roi, insp
+    m.px_scale = float(unit_w)
     if roi[2] < 20 or roi[3] < 12 or insp[2] < 8:
         raise SetupError("regions too small or outside the image")
-    if expected_width is None:
-        expected_width = recipe.cable_width_px
-        if expected_width and recipe.image_size and recipe.image_size[1] != ih:
-            expected_width *= ih / recipe.image_size[1]
+    if expected_width is None and recipe.cable_width_px:
+        expected_width = recipe.cable_width_px * unit_h
     cfg = dict(cfg)
     spacing = recipe.geometry.get("expected_spacing_px")
-    if spacing and recipe.image_size and recipe.image_size[0] != iw:
-        spacing *= iw / recipe.image_size[0]
+    if spacing:
+        spacing *= unit_w
     cfg["_expected_spacing"] = spacing if cfg.get("group_stripes", True) else None
+    stripe_w = recipe.geometry.get("expected_width_px")
+    cfg["_expected_stripe_w"] = stripe_w * unit_w if stripe_w else None
 
-    m = Measurement()
     roi_bgr = crop(frame, roi)
     rh, rw = roi_bgr.shape[:2]
 
@@ -556,6 +590,7 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
     n_lab, labels, stats, _ = cv2.connectedComponentsWithStats(closed.astype(np.uint8), connectivity=8)
 
     accepted: list[tuple[int, int, float, bool]] = []
+    crossing: list[tuple[int, int, float, bool]] = []
     for s, e in strong_runs:
         w = e - s
         seg = closed[:, s:e]
@@ -577,15 +612,29 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
             elif _crosses_cable(above, below, x0 + s, x0 + e, bw, edge_cols=edge_cols, cand_px=
                                 band_lab[:, x0 + s:x0 + e][seg & valid[:, x0 + s:x0 + e]]):
                 reason = "object crossing the cable"
+        if reason == "object crossing the cable":
+            crossing.append((s, e, c, bool(sat_cols[s:e].mean() > 0.5)))
+            continue
         if reason:
             m.rejected.append(Candidate(x0 + s, x0 + e, reason))
-            if reason == "object crossing the cable":
-                if "object crossing the cable in inspection region" not in m.issues:
-                    m.issues.append("object crossing the cable in inspection region")
             if reason == "too wide for a stripe":
                 m.issues.append("unexpected wide band of different colour in region")
             continue
         accepted.append((s, e, c, bool(sat_cols[s:e].mean() > 0.5)))
+
+    # A stripe lying over a fixture edge/seam of similar colour can look like an
+    # object crossing the cable.  If it has the taught stripe width and sits on
+    # the taught pitch next to accepted stripes, keep it; otherwise it is an
+    # obstruction (finger, tool, wire) and the image cannot be judged.
+    for cand in crossing:
+        if _fits_pattern(cand, accepted, cfg.get("_expected_spacing"), cfg.get("_expected_stripe_w")):
+            accepted.append(cand)
+            m.notes.append(f"stripe at {x0 + cand[0]} lies over a fixture edge (kept: fits the stripe pattern)")
+        else:
+            m.rejected.append(Candidate(x0 + cand[0], x0 + cand[1], "object crossing the cable"))
+            if "object crossing the cable in inspection region" not in m.issues:
+                m.issues.append("object crossing the cable in inspection region")
+    accepted.sort()
 
     accepted = _keep_stripe_group(accepted, cfg.get("_expected_spacing"), m, x0)
 
@@ -703,6 +752,21 @@ def _stripe_edge_width(band_lab, valid, stripes) -> float:
     return float(np.median(widths)) if widths else 0.0
 
 
+def _fits_pattern(cand, accepted, spacing, stripe_w) -> bool:
+    """Candidate has the taught stripe width and lies on the taught pitch of accepted stripes."""
+    if not spacing or not stripe_w or not accepted:
+        return False
+    s, e = cand[0], cand[1]
+    if (e - s) > 1.6 * stripe_w:
+        return False
+    c = (s + e) / 2.0
+    for a in accepted:
+        k = abs(c - (a[0] + a[1]) / 2.0) / spacing
+        if 0.75 <= k <= 3.25 and abs(k - round(k)) < 0.2:
+            return True
+    return False
+
+
 def _keep_stripe_group(accepted, spacing, m: Measurement, x0: int):
     """Keep the main group of stripes when the stripe pitch has been taught.
 
@@ -784,8 +848,9 @@ def _crosses_cable(above, below, s, e, bw, cand_px, edge_cols, de_thr: float = 1
     A painted stripe keeps the cable silhouette and does not change the
     fixture next to the cable.  An object lying over the cable (finger, tool,
     another wire) hides the silhouette edge where it crosses it and continues
-    outside in its own colour.  All three must hold on at least one side;
-    a cluttered background alone is not enough.
+    outside in its own colour, as a strip bounded by background on both sides.
+    All of this must hold on at least one side of the cable; a cluttered
+    background or a fixture edge behind the cable is not enough.
     """
     if above.size == 0 or below.size == 0 or not len(cand_px):
         return False
@@ -800,11 +865,14 @@ def _crosses_cable(above, below, s, e, bw, cand_px, edge_cols, de_thr: float = 1
         here = band[:, lost_cols].reshape(-1, 3)
         l0, l1 = max(0, s - pad - 8), max(0, s - 8)
         r0, r1 = min(bw, e + 8), min(bw, e + 8 + pad)
-        ref = np.concatenate([band[:, l0:l1].reshape(-1, 3), band[:, r0:r1].reshape(-1, 3)])
-        if len(here) == 0 or len(ref) == 0:
+        left, right = band[:, l0:l1].reshape(-1, 3), band[:, r0:r1].reshape(-1, 3)
+        if len(here) == 0:
             continue
         here_med = np.median(here, 0)
-        changed = float(delta_e_2000(here_med, np.median(ref, 0))) > de_thr
+        # an object is a strip with background on BOTH sides; a step in the
+        # fixture behind the cable (e.g. a clamp edge) differs on one side only
+        sides = [float(delta_e_2000(here_med, np.median(n, 0))) > de_thr for n in (left, right) if len(n)]
+        changed = len(sides) > 0 and all(sides)
         continues = float(delta_e_2000(here_med, cand)) < de_thr
         if changed and continues:
             return True

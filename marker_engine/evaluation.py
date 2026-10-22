@@ -206,6 +206,7 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
     # -- optional geometry --------------------------------------------------------
     if geo.get("check_spacing") and len(m.stripes) >= 2:
         exp_sp = geo.get("expected_spacing_px")
+        exp_sp = exp_sp * m.px_scale if exp_sp else exp_sp
         tol = float(geo.get("spacing_tol_px", 6.0))
         if exp_sp:
             spacings = np.diff([st.centre_px for st in m.stripes])
@@ -218,6 +219,7 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
             v.checks.append(("stripe spacing", None, "no expected spacing taught"))
     if geo.get("check_width") and m.stripes:
         exp_w = geo.get("expected_width_px")
+        exp_w = exp_w * m.px_scale if exp_w else exp_w
         tol = float(geo.get("width_tol_px", 4.0))
         if exp_w:
             worst = max(abs(st.width_px - exp_w) for st in m.stripes)

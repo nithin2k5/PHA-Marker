@@ -369,6 +369,7 @@ class App:
         r.image_size = (w, h)
         if r.roi and r.inspection_region and not rect_contains(r.roi, r.inspection_region):
             messagebox.showwarning("Draw region", "The stripe region should lie inside the cable ROI.")
+        r.fixture_template = None    # regions now refer to this view; teach again to re-enable alignment
         if which == "roi":
             r.cable_width_px = None  # re-learn width for the new view
         self.dirty = True

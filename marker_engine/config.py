@@ -56,6 +56,8 @@ DEFAULT_DETECTION = {
     "glare_v": 245,                # pixel value treated as saturated
     "dark_max": 0.98,              # fraction of near-black pixels in whole ROI -> underexposed
     "lighting_tol_l": 10.0,        # fixture brightness change vs teach (L*) -> INDETERMINATE
+    "auto_align": True,            # follow the fixture when the camera framing changes
+    "align_min_score": 0.4,        # template match below this -> INDETERMINATE (fixture not found)
     "marginal_factor": 1.35,       # colour distance between 1.0 and this -> INDETERMINATE
 }
 

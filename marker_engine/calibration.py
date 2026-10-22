@@ -21,6 +21,7 @@ import numpy as np
 
 from .colors import ColourReference, bgr_to_lab, delta_e_2000, robust_lab
 from .detection import detect
+from .alignment import make_template
 from .geometry import clamp_rect, crop
 
 BODY, STRIPE = "body", "stripe"
@@ -54,6 +55,7 @@ class TeachSession:
     spacings: list[float] = field(default_factory=list)
     stripe_widths: list[float] = field(default_factory=list)
     background_l: list[float] = field(default_factory=list)
+    template: dict | None = None
     log: list[str] = field(default_factory=list)
 
     # -- collecting ------------------------------------------------------------
@@ -86,6 +88,8 @@ class TeachSession:
                 self.stripe_samples.append(st.pixels)
             self.stripe_widths.append(st.width_px)
         self.cable_widths.append(m.cable_width_px)
+        if self.template is None:
+            self.template = make_template(frame, recipe)
         if m.background_l is not None:
             self.background_l.append(m.background_l)
         if len(m.stripes) >= 2:
@@ -120,6 +124,8 @@ class TeachSession:
         recipe.stripe_ref = stripe.to_dict()
         if self.cable_widths:
             recipe.cable_width_px = float(np.median(self.cable_widths))
+        if self.template is not None:
+            recipe.fixture_template = self.template
         if self.background_l:
             recipe.lighting_ref_l = round(float(np.median(self.background_l)), 1)
         if self.spacings:

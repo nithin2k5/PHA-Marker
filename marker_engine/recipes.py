@@ -41,6 +41,7 @@ class Recipe:
     stripe_ref: dict | None = None
     cable_width_px: float | None = None     # taught cable width (across axis)
     lighting_ref_l: float | None = None     # taught fixture background lightness (L*)
+    fixture_template: dict | None = None    # teach-time fixture template for alignment
     camera: dict = field(default_factory=dict)
     detection: dict = field(default_factory=dict)
     geometry: dict = field(default_factory=dict)
