@@ -203,3 +203,33 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
         v.status = PASS
         v.reasons = [f"{recipe.describe()} verified"]
     return v
+
+
+def identify(m: Measurement, recipes, presets) -> tuple[str, list[str]]:
+    """Compare a measurement with every recipe.
+
+    Returns (type, matching recipe names).  A type is returned only when
+    exactly one recipe passes; otherwise UNKNOWN (none) or AMBIGUOUS (several).
+    An unreliable image yields INDETERMINATE and NO_CABLE stays NO_CABLE.
+
+    The measurement comes from the selected recipe's regions, so recipes that
+    are compared should share the same fixture position.
+    """
+    if m.presence == ABSENT:
+        return NO_CABLE, []
+    if m.presence != PRESENT or m.issues:
+        return INDETERMINATE, []
+    matches = []
+    for r in recipes:
+        if evaluate(m, r, presets).status == PASS:
+            matches.append(r.name)
+    if len(matches) == 1:
+        return matches[0], matches
+    return (AMBIGUOUS if matches else UNKNOWN), matches
+
+
+def apply_identification(v: Verdict, m: Measurement, recipes, presets) -> Verdict:
+    ident, cands = identify(m, recipes, presets)
+    v.identified = ident
+    v.identify_candidates = cands
+    return v
