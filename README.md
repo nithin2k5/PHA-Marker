@@ -96,6 +96,10 @@ All steps live in `cable_inspection/detection.py`:
    * its interior is uniform along its length (fixture background is not).
 
    The edges are then refined locally around the stripe region, because real cables sag slightly.
+   Before step 1, if the recipe was taught, **fixture alignment** finds the taught fixture in the
+   frame (multi-scale template matching on edge images), so the ROI and stripe region follow a
+   re-framed camera (shift, crop, resolution, zoom 0.5–1.6×). A weak match falls back to the drawn
+   regions, and "no cable" is then reported as INDETERMINATE ("fixture not recognised").
 2. **Presence** uses edge strength, signal-to-noise, agreement between 12 slices along the cable and
    width, never the expected colour. A wrong-colour cable is still "present", and an empty fixture is
    NO CABLE.
@@ -178,6 +182,12 @@ independent. What these frames do show is that the colours separate cleanly from
 that the print is rejected in every frame. The white frame's stripes are pure 255 (clipped), so their
 real colour cannot be measured: with the production camera, reduce exposure until white stripes are
 below saturation.
+
+A third frame (`samples/real/set3/ref14.png`) is the same fixture framed differently: a camera
+picture without window borders, shifted and at a different scale. With fixture alignment it passes
+without redrawing any region. Here the third stripe lies over a dark seam in the fixture; it is kept
+because it matches the taught stripe width and pitch, whereas a finger or wire (wider or off the
+pattern) still gives INDETERMINATE.
 
 The defect variants are edited copies of one image, so they are a regression check, not a measure
 of accuracy. What the frame shows about the optics:

@@ -92,6 +92,7 @@ yourself with your own frame source.
 | `processing.py` | `InspectionProcessor` thread (camera → detection → cycle → output queue) |
 | `annotate.py` | overlay drawing and the magnified, straightened stripe view |
 | `export.py` | save a result as JSON plus raw, annotated and stripe images |
+| `alignment.py` | fixture alignment: finds the taught fixture in a re-framed image (shift and scale) |
 | `geometry.py` | preview ↔ image coordinate mapping, rect helpers |
 | `alerts.py` | repeating audible alarm (winsound on Windows, optional fallback callback) |
 | `synthetic.py` | synthetic fixture scenes for tests and demos |
@@ -102,8 +103,12 @@ Thresholds are per recipe (`recipe.detection`, `recipe.geometry`, `recipe.cycle`
 
 ## Important notes
 
-* Regions are in original-image pixels. If the camera position or framing changes, redraw them and
-  teach again. A stripe region that misses the cable gives INDETERMINATE, never FAIL.
+* Regions are in original-image pixels of the teach image. Teaching stores a small edge template of
+  the fixture. When the framing changes (camera nudged, other crop or resolution, zoom 0.5–1.6×),
+  the engine finds the fixture and moves the regions and taught sizes with it (`measurement.alignment`).
+  Camera rotation or a different fixture still needs the regions redrawn and the recipe re-taught.
+  If the fixture is not recognised and no cable is found, the result is INDETERMINATE, not NO CABLE.
+  A stripe region that misses the cable also gives INDETERMINATE, never FAIL.
 * Teach with the production camera and lighting, using fixed exposure, white balance and focus.
   Clipped (saturated) stripes give INDETERMINATE.
 * Validate with many real good and bad cables before trusting the results (see the main project's
