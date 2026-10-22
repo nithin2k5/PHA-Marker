@@ -11,3 +11,4 @@ eval_out/
 
 # real fixture images stay local (not published)
 samples/real/
+samples/synthetic/
