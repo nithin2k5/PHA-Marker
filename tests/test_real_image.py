@@ -146,3 +146,15 @@ def test_second_set_against_grey_recipe(stem, expected, recipe, presets):
     assert v.status == expected, v.reasons
     if expected == FAIL:
         assert "wrong colour" in v.reasons[0]
+
+
+SET3 = REF.parent / "set3" / "ref14.png"
+
+
+@pytest.mark.skipif(not SET3.exists(), reason="re-framed real frame not available")
+def test_reframed_camera_view_passes_without_redrawing(frame, recipe, presets):
+    """Different crop/framing of the same fixture: alignment must follow it."""
+    m, v = run(cv2.imread(str(SET3)), recipe, presets)
+    assert m.alignment is not None and m.alignment.score >= 0.4
+    assert v.status == PASS, v.reasons
+    assert len(m.stripes) == 3

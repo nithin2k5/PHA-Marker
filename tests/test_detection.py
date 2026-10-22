@@ -123,3 +123,37 @@ def test_stripe_region_off_the_cable_is_not_a_fail(taught_recipe, presets):
     v = evaluate(detect(synthetic.make(seed=20).image, r), r, presets)
     assert v.status == INDETERMINATE
     assert any("outside the stripe region" in s for s in v.reasons)
+
+
+def _reframe(img, scale, tx, ty):
+    """Simulate a re-framed camera: zoom by `scale` and shift by (tx, ty)."""
+    import cv2
+    import numpy as np
+    m = np.float32([[scale, 0, tx], [0, scale, ty]])
+    return cv2.warpAffine(img, m, (img.shape[1], img.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+
+
+@pytest.mark.parametrize("scale,tx,ty", [(1.0, 60, -30), (1.15, -120, -70), (0.88, 90, 50)])
+def test_alignment_follows_reframed_camera(scale, tx, ty, taught_recipe, presets):
+    assert taught_recipe.fixture_template, "teaching should store a fixture template"
+    img = _reframe(synthetic.make(seed=20).image, scale, tx, ty)
+    m = detect(img, taught_recipe)
+    assert m.alignment.score >= 0.4
+    assert abs(m.alignment.scale - scale) < 0.05
+    assert evaluate(m, taught_recipe, presets).status == PASS
+
+
+def test_reframed_defect_still_fails(taught_recipe, presets):
+    img = _reframe(synthetic.make(seed=20, stripe_count=2).image, 1.1, -80, -40)
+    v = evaluate(detect(img, taught_recipe), taught_recipe, presets)
+    assert v.status == FAIL and "missing stripe" in v.reasons[0]
+
+
+def test_unrecognised_scene_is_not_reported_as_no_cable(taught_recipe, presets):
+    import cv2
+    import numpy as np
+    rng = np.random.default_rng(3)
+    noise = cv2.GaussianBlur(rng.integers(60, 200, (720, 1280, 3)).astype(np.uint8), (0, 0), 6)
+    v = evaluate(detect(noise, taught_recipe), taught_recipe, presets)
+    assert v.status == INDETERMINATE
+    assert any("fixture not recognised" in r for r in v.reasons)
