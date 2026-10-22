@@ -1,0 +1,224 @@
+{
+  "recipes": [
+    {
+      "name": "DEMO-BLK-3xWHT",
+      "body_colour": "black",
+      "stripe_colour": "white",
+      "stripe_count": 3,
+      "version": 1,
+      "roi": [
+        256,
+        257,
+        768,
+        204
+      ],
+      "inspection_region": [
+        520,
+        296,
+        240,
+        128
+      ],
+      "image_size": [
+        1280,
+        720
+      ],
+      "body_ref": {
+        "name": "black",
+        "lab": [
+          8.77,
+          0.93,
+          0.34
+        ],
+        "tol": 8.0,
+        "achromatic": true,
+        "tol_l": 12.0,
+        "max_chroma": 12.0,
+        "hue_tol_deg": null
+      },
+      "stripe_ref": {
+        "name": "white",
+        "lab": [
+          82.97,
+          -0.37,
+          -0.11
+        ],
+        "tol": 8.0,
+        "achromatic": true,
+        "tol_l": 13.01,
+        "max_chroma": 12.0,
+        "hue_tol_deg": null
+      },
+      "cable_width_px": 63.84105682373047,
+      "lighting_ref_l": 51.9,
+      "camera": {
+        "index": 0,
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "auto_exposure": true,
+        "exposure": null,
+        "auto_focus": true,
+        "focus": null,
+        "auto_white_balance": true,
+        "white_balance": null,
+        "gain": null
+      },
+      "detection": {
+        "max_angle_deg": 12.0,
+        "min_cable_width_frac": 0.15,
+        "max_cable_width_frac": 0.95,
+        "width_tolerance": 0.2,
+        "edge_snr_min": 3.0,
+        "edge_consistency_min": 0.6,
+        "occlusion_max": 0.34,
+        "band_inset": 0.18,
+        "stripe_delta_e_min": 12.0,
+        "stripe_mad_k": 5.0,
+        "ref_window_widths": 6.0,
+        "body_uniformity_max": 30.0,
+        "min_coverage": 0.65,
+        "min_stripe_width_px": 2,
+        "max_stripe_width_px": 80,
+        "merge_gap_px": 3,
+        "min_fill": 0.5,
+        "group_stripes": true,
+        "max_edge_width_px": 6.0,
+        "min_edge_strength": 3.0,
+        "glare_max": 0.1,
+        "glare_v": 245,
+        "dark_max": 0.98,
+        "lighting_tol_l": 10.0,
+        "marginal_factor": 1.35
+      },
+      "geometry": {
+        "check_spacing": false,
+        "expected_spacing_px": 42.0,
+        "spacing_tol_px": 6.0,
+        "check_width": false,
+        "expected_width_px": 11.0,
+        "width_tol_px": 4.0,
+        "mm_per_px": null
+      },
+      "cycle": {
+        "frames_required": 5,
+        "cycle_timeout_s": 4.0,
+        "presence_frames": 3,
+        "removal_frames": 5,
+        "stability_px": 4.0,
+        "stability_deg": 1.5
+      },
+      "updated": "2026-10-22T20:30:06",
+      "notes": "Matches the synthetic demo scenes / samples/synthetic. Taught on synthetic seeds 1-5."
+    },
+    {
+      "name": "EXAMPLE-BLK-3xGRY",
+      "body_colour": "black",
+      "stripe_colour": "grey",
+      "stripe_count": 3,
+      "version": 1,
+      "roi": [
+        250,
+        110,
+        700,
+        100
+      ],
+      "inspection_region": [
+        420,
+        120,
+        260,
+        80
+      ],
+      "image_size": [
+        1806,
+        972
+      ],
+      "body_ref": {
+        "name": "black",
+        "lab": [
+          17.85,
+          -0.6,
+          0.03
+        ],
+        "tol": 8.0,
+        "achromatic": true,
+        "tol_l": 12.0,
+        "max_chroma": 12.0,
+        "hue_tol_deg": null
+      },
+      "stripe_ref": {
+        "name": "grey",
+        "lab": [
+          46.15,
+          -3.17,
+          -2.25
+        ],
+        "tol": 8.0,
+        "achromatic": true,
+        "tol_l": 12.0,
+        "max_chroma": 12.07,
+        "hue_tol_deg": null
+      },
+      "cable_width_px": 21.89581298828125,
+      "lighting_ref_l": 46.4,
+      "camera": {
+        "index": 0,
+        "width": 1280,
+        "height": 720,
+        "fps": 30,
+        "auto_exposure": true,
+        "exposure": null,
+        "auto_focus": true,
+        "focus": null,
+        "auto_white_balance": true,
+        "white_balance": null,
+        "gain": null
+      },
+      "detection": {
+        "max_angle_deg": 12.0,
+        "min_cable_width_frac": 0.15,
+        "max_cable_width_frac": 0.95,
+        "width_tolerance": 0.2,
+        "edge_snr_min": 3.0,
+        "edge_consistency_min": 0.6,
+        "occlusion_max": 0.34,
+        "band_inset": 0.18,
+        "stripe_delta_e_min": 12.0,
+        "stripe_mad_k": 5.0,
+        "ref_window_widths": 6.0,
+        "body_uniformity_max": 30.0,
+        "min_coverage": 0.65,
+        "min_stripe_width_px": 2,
+        "max_stripe_width_px": 80,
+        "merge_gap_px": 3,
+        "min_fill": 0.5,
+        "group_stripes": true,
+        "max_edge_width_px": 6.0,
+        "min_edge_strength": 3.0,
+        "glare_max": 0.1,
+        "glare_v": 245,
+        "dark_max": 0.98,
+        "lighting_tol_l": 10.0,
+        "marginal_factor": 1.35
+      },
+      "geometry": {
+        "check_spacing": false,
+        "expected_spacing_px": 17.8,
+        "spacing_tol_px": 6.0,
+        "check_width": false,
+        "expected_width_px": 7.0,
+        "width_tol_px": 4.0,
+        "mm_per_px": null
+      },
+      "cycle": {
+        "frames_required": 5,
+        "cycle_timeout_s": 4.0,
+        "presence_frames": 3,
+        "removal_frames": 5,
+        "stability_px": 4.0,
+        "stability_deg": 1.5
+      },
+      "updated": "2026-10-22T20:30:06",
+      "notes": "Example for the reference fixture frame (1806x972 screenshot). Re-draw regions and re-teach with the production camera at its native resolution before use."
+    }
+  ]
+}
