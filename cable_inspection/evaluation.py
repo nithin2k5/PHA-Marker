@@ -69,6 +69,19 @@ def _reference_list(recipe, presets):
     return list(refs.values())
 
 
+def _competitor(lab, expected_ref, refs) -> tuple[str, float] | None:
+    """A different named colour that fits the observation better than the expected one."""
+    d_exp = expected_ref.distance(lab)
+    best = None
+    for r in refs:
+        if r.name == expected_ref.name:
+            continue
+        d = r.distance(lab)
+        if d <= 1.0 and d < d_exp and (best is None or d < best[1]):
+            best = (r.name, d)
+    return best
+
+
 def _lab_list(lab) -> list[float] | None:
     return None if lab is None else [round(float(v), 1) for v in np.asarray(lab)]
 
@@ -125,7 +138,11 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
     else:
         d = body_ref.distance(m.body_lab)
         txt = f"observed {obs.get('body_colour', '?')} (score {d:.2f})"
-        if d <= 1.0:
+        comp = _competitor(m.body_lab, body_ref, refs) if d <= 1.0 else None
+        if comp:
+            v.checks.append(("body colour", None, txt + f" - closer to {comp[0]}"))
+            marg.append(f"body colour closer to {comp[0]} than to {recipe.body_colour}")
+        elif d <= 1.0:
             v.checks.append(("body colour", True, txt))
         elif d <= marginal:
             v.checks.append(("body colour", None, txt + " - marginal"))
@@ -154,7 +171,11 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
     elif stripe_ref is not None:
         for st in m.stripes:
             d = stripe_ref.distance(st.lab)
-            if d <= 1.0:
+            comp = _competitor(st.lab, stripe_ref, refs) if d <= 1.0 else None
+            if comp:
+                st.colour_ok = None
+                marg.append(f"stripe {st.index} colour closer to {comp[0]} than to {recipe.stripe_colour}")
+            elif d <= 1.0:
                 st.colour_ok = True
             elif d <= marginal:
                 st.colour_ok = None
