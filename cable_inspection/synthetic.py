@@ -109,7 +109,8 @@ def render(spec: SceneSpec) -> Scene:
         stripe_cols = spec.stripe_colours or [spec.stripe] * spec.stripe_count
         all_centres = list(centres_local)
         if spec.partial_stripe:
-            all_centres.append(length / 2 + 170 + spec.stripe_width / 2 - 2)
+            half_region = max(group / 2 + spec.stripe_spacing * 1.3, 120)
+            all_centres.append(length / 2 + half_region - 2)
             stripe_cols = list(stripe_cols) + [spec.stripe]
         for c, name in zip(all_centres, stripe_cols):
             x0 = int(round(c - spec.stripe_width / 2))
