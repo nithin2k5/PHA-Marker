@@ -71,6 +71,8 @@ class App:
         self.live_m = None
         self.live_frame = None
         self.auto_on = False
+        self.files: list[str] = []
+        self.file_idx = 0
         self.alert_active = False
         self._flash = False
         self.sounder = AlertSounder(fallback=None)
@@ -110,6 +112,12 @@ class App:
         self.btn_cam = ttk.Button(row1, text="Start Camera", command=self.toggle_camera)
         self.btn_cam.pack(side="left", padx=2)
         ttk.Button(row1, text="Open Image/Video", command=self.open_file).pack(side="left", padx=2)
+        ttk.Button(row1, text="\u25c0", width=3, command=lambda: self.step_file(-1)).pack(side="left")
+        self.file_lbl = ttk.Label(row1, text="", width=18, anchor="center")
+        self.file_lbl.pack(side="left")
+        ttk.Button(row1, text="\u25b6", width=3, command=lambda: self.step_file(1)).pack(side="left", padx=(0, 2))
+        self.root.bind("<Left>", lambda e: self.step_file(-1))
+        self.root.bind("<Right>", lambda e: self.step_file(1))
         demo = ttk.Menubutton(row1, text="Demo Scene")
         menu = tk.Menu(demo, tearoff=False)
         for name in DEMO_SCENES:
@@ -369,6 +377,9 @@ class App:
 
     # ------------------------------------------------------------------ camera
     def _start_source(self, source, label: str):
+        if self.camera is not None:
+            self.processor.send("source_change")
+            self._clear_result(f"Source changed to {label}.")
         self.stop_camera()
         self.camera = CameraWorker(source, self.store, self.cam_events)
         self.camera.start()
@@ -396,12 +407,30 @@ class App:
         self.btn_cam.config(text="Start Camera")
 
     def open_file(self):
-        path = filedialog.askopenfilename(
-            title="Open image or video", initialdir=str(SAMPLES_DIR if SAMPLES_DIR.exists() else Path.cwd()),
+        paths = filedialog.askopenfilenames(
+            title="Open image(s) or video", initialdir=str(SAMPLES_DIR if SAMPLES_DIR.exists() else Path.cwd()),
             filetypes=[("Images/videos", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.mp4 *.avi *.mov *.mkv"),
                        ("All files", "*.*")])
-        if path:
-            self._start_source(make_source(path), Path(path).name)
+        if paths:
+            self.open_files(list(paths))
+
+    def open_files(self, paths: list[str]):
+        """Open one or more images/videos; step through them with the arrow buttons/keys."""
+        self.files = [str(p) for p in paths]
+        self.file_idx = 0
+        self._show_file()
+
+    def step_file(self, delta: int):
+        if len(self.files) > 1 and not self.preview.selecting:
+            self.file_idx = (self.file_idx + delta) % len(self.files)
+            self._show_file()
+
+    def _show_file(self):
+        if not self.files:
+            return
+        path = self.files[self.file_idx]
+        self.file_lbl.config(text=f"{self.file_idx + 1}/{len(self.files)} {Path(path).stem[:12]}")
+        self._start_source(make_source(path), Path(path).name)
 
     def load_demo(self, name: str):
         scene = synthetic.make(**DEMO_SCENES[name])
@@ -630,12 +659,16 @@ class App:
         self.root.destroy()
 
 
-def main():
+def main(argv: list[str] | None = None):
+    import sys
+    files = list(sys.argv[1:] if argv is None else argv)
     try:
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:  # noqa: BLE001 - not Windows
         pass
     root = tk.Tk()
-    App(root)
+    app = App(root)
+    if files:
+        root.after(300, lambda: app.open_files(files))
     root.mainloop()
