@@ -125,3 +125,24 @@ def test_empty_fixture_is_no_cable(frame, recipe, presets):
     r.roi, r.inspection_region = (1350, 250, 400, 90), (1500, 260, 120, 70)
     _, v = run(frame, r, presets)
     assert v.status == NO_CABLE
+
+
+SET2 = REF.parent / "set2"
+SET2_EXPECTED = {
+    "01_green": FAIL, "02_red": FAIL, "03_orange": FAIL, "04_pink": FAIL, "05_blue": FAIL,
+    "06_grey": PASS,             # same cable type as the reference frame
+    "07_white": INDETERMINATE,   # white stripes are clipped (255) in this frame
+    "08_yellow": FAIL,
+}
+
+
+@pytest.mark.skipif(not SET2.exists(), reason="second set of real frames not available")
+@pytest.mark.parametrize("stem,expected", sorted(SET2_EXPECTED.items()))
+def test_second_set_against_grey_recipe(stem, expected, recipe, presets):
+    """Frames of other cable types, judged by the recipe taught only on reference.png."""
+    img = cv2.imread(str(SET2 / f"{stem}.png"))
+    m, v = run(img, recipe, presets)
+    assert len(m.stripes) == 3
+    assert v.status == expected, v.reasons
+    if expected == FAIL:
+        assert "wrong colour" in v.reasons[0]
