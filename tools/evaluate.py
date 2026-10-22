@@ -31,12 +31,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cable_inspection import synthetic  # noqa: E402
-from cable_inspection.calibration import TeachSession  # noqa: E402
-from cable_inspection.detection import SetupError, detect  # noqa: E402
-from cable_inspection.evaluation import FAIL, INDETERMINATE, NO_CABLE, PASS, evaluate  # noqa: E402
-from cable_inspection.presets import PresetStore  # noqa: E402
-from cable_inspection.recipes import Recipe, RecipeStore  # noqa: E402
+from marker_engine import synthetic  # noqa: E402
+from marker_engine.calibration import TeachSession  # noqa: E402
+from marker_engine.detection import SetupError, detect  # noqa: E402
+from marker_engine.evaluation import FAIL, INDETERMINATE, NO_CABLE, PASS, evaluate  # noqa: E402
+from marker_engine.presets import PresetStore  # noqa: E402
+from marker_engine.recipes import Recipe, RecipeStore  # noqa: E402
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 CLASSES = ("pass", "fail", "no_cable")

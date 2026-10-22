@@ -1,4 +1,10 @@
-"""Paths and application-wide defaults."""
+"""Paths and engine-wide defaults.
+
+When marker_engine is copied into another project, PROJECT_ROOT is the folder
+that contains the marker_engine package, so recipes/presets are looked up in
+``<that folder>/config/``.  Override with the MARKER_ENGINE_CONFIG environment
+variable, or pass explicit paths to RecipeStore(...) / PresetStore(...).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +12,9 @@ import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_DIR = Path(os.environ.get("CABLE_INSPECTION_CONFIG", PROJECT_ROOT / "config"))
+CONFIG_DIR = Path(os.environ.get("MARKER_ENGINE_CONFIG")
+                  or os.environ.get("CABLE_INSPECTION_CONFIG")
+                  or PROJECT_ROOT / "config")
 RECIPES_FILE = CONFIG_DIR / "recipes.json"
 PRESETS_FILE = CONFIG_DIR / "colour_presets.json"
 EXPORT_DIR = PROJECT_ROOT / "exports"

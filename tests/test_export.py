@@ -1,10 +1,10 @@
 import json
 
-from cable_inspection import synthetic
-from cable_inspection.cycle import FrameResult, InspectionCycle
-from cable_inspection.detection import detect
-from cable_inspection.evaluation import evaluate
-from cable_inspection.export import export_result
+from marker_engine import synthetic
+from marker_engine.cycle import FrameResult, InspectionCycle
+from marker_engine.detection import detect
+from marker_engine.evaluation import evaluate
+from marker_engine.export import export_result
 
 
 def test_export_writes_summary_and_images(tmp_path, taught_recipe, presets):

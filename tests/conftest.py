@@ -5,11 +5,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cable_inspection import synthetic  # noqa: E402
-from cable_inspection.calibration import TeachSession  # noqa: E402
-from cable_inspection.colors import ColourReference  # noqa: E402
-from cable_inspection.presets import DEFAULT_PRESETS  # noqa: E402
-from cable_inspection.recipes import Recipe  # noqa: E402
+from marker_engine import synthetic  # noqa: E402
+from marker_engine.calibration import TeachSession  # noqa: E402
+from marker_engine.colors import ColourReference  # noqa: E402
+from marker_engine.presets import DEFAULT_PRESETS  # noqa: E402
+from marker_engine.recipes import Recipe  # noqa: E402
 
 
 class MemoryPresets:

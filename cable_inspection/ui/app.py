@@ -8,18 +8,18 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .. import APP_NAME, __version__
-from ..alerts import AlertSounder
-from ..annotate import annotate, magnified_view
-from ..camera import CameraWorker, FrameStore, ImageSource, make_source
-from ..config import EXPORT_DIR, SAMPLES_DIR
-from ..cycle import ACQUIRING, WAIT_CABLE, WAIT_REMOVAL
-from ..evaluation import CAMERA_ERROR, FAIL, INDETERMINATE, NO_CABLE, PASS
-from ..export import export_result
-from ..geometry import rect_contains
-from ..presets import PresetStore
-from ..processing import InspectionProcessor
-from ..recipes import Recipe, RecipeStore
-from .. import synthetic
+from marker_engine.alerts import AlertSounder
+from marker_engine.annotate import annotate, magnified_view
+from marker_engine.camera import CameraWorker, FrameStore, ImageSource, make_source
+from marker_engine.config import EXPORT_DIR, SAMPLES_DIR
+from marker_engine.cycle import ACQUIRING, WAIT_CABLE, WAIT_REMOVAL
+from marker_engine.evaluation import CAMERA_ERROR, FAIL, INDETERMINATE, NO_CABLE, PASS
+from marker_engine.export import export_result
+from marker_engine.geometry import rect_contains
+from marker_engine.presets import PresetStore
+from marker_engine.processing import InspectionProcessor
+from marker_engine.recipes import Recipe, RecipeStore
+from marker_engine import synthetic
 from .dialogs import PresetDialog, SettingsDialog, TeachDialog
 from .widgets import ImageCanvas
 

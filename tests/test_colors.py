@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from cable_inspection.colors import (ColourReference, bgr_to_lab, delta_e_2000, nearest_colour_name)
+from marker_engine.colors import (ColourReference, bgr_to_lab, delta_e_2000, nearest_colour_name)
 
 
 @pytest.mark.parametrize("lab1,lab2,expected", [

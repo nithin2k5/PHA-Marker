@@ -1,6 +1,6 @@
-from cable_inspection.geometry import (ViewTransform, adapt_rect_to_image, clamp_rect, normalize_rect,
+from marker_engine.geometry import (ViewTransform, adapt_rect_to_image, clamp_rect, normalize_rect,
                                       rect_contains)
-from cable_inspection.recipes import Recipe, RecipeStore
+from marker_engine.recipes import Recipe, RecipeStore
 
 
 def test_letterbox_mapping_roundtrip():

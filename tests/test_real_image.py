@@ -13,10 +13,10 @@ import cv2
 import numpy as np
 import pytest
 
-from cable_inspection.calibration import TeachSession
-from cable_inspection.detection import detect
-from cable_inspection.evaluation import FAIL, INDETERMINATE, NO_CABLE, PASS, evaluate
-from cable_inspection.recipes import Recipe
+from marker_engine.calibration import TeachSession
+from marker_engine.detection import detect
+from marker_engine.evaluation import FAIL, INDETERMINATE, NO_CABLE, PASS, evaluate
+from marker_engine.recipes import Recipe
 
 REF = Path(__file__).resolve().parent.parent / "samples" / "real" / "reference.png"
 pytestmark = pytest.mark.skipif(not REF.exists(), reason="real reference image not available")

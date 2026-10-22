@@ -16,8 +16,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cable_inspection import synthetic  # noqa: E402
-from cable_inspection.config import SAMPLES_DIR  # noqa: E402
+from marker_engine import synthetic  # noqa: E402
+from marker_engine.config import SAMPLES_DIR  # noqa: E402
 
 SCENES = {
     "good_01": {"seed": 31},

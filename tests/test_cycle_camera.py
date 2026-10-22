@@ -3,11 +3,11 @@ import time
 
 import numpy as np
 
-from cable_inspection.camera import CameraWorker, FrameStore, ImageSource
-from cable_inspection.cycle import (ACQUIRING, CAMERA_DOWN, IDLE, WAIT_CABLE, WAIT_REMOVAL, FrameResult,
+from marker_engine.camera import CameraWorker, FrameStore, ImageSource
+from marker_engine.cycle import (ACQUIRING, CAMERA_DOWN, IDLE, WAIT_CABLE, WAIT_REMOVAL, FrameResult,
                                     InspectionCycle)
-from cable_inspection.detection import ABSENT, PRESENT, Measurement
-from cable_inspection.evaluation import CAMERA_ERROR, FAIL, INDETERMINATE, NO_CABLE, PASS, Verdict
+from marker_engine.detection import ABSENT, PRESENT, Measurement
+from marker_engine.evaluation import CAMERA_ERROR, FAIL, INDETERMINATE, NO_CABLE, PASS, Verdict
 
 CFG = {"frames_required": 3, "presence_frames": 2, "removal_frames": 3, "cycle_timeout_s": 2.0}
 

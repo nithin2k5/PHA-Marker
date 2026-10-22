@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from ..geometry import ViewTransform
+from marker_engine.geometry import ViewTransform
 
 
 class ImageCanvas(tk.Canvas):

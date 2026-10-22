@@ -7,9 +7,9 @@ they say nothing about accuracy on real cables (see README, validation).
 
 import pytest
 
-from cable_inspection import synthetic
-from cable_inspection.detection import ABSENT, PRESENT, detect
-from cable_inspection.evaluation import (AMBIGUOUS, FAIL, INDETERMINATE, NO_CABLE, PASS, UNKNOWN, evaluate,
+from marker_engine import synthetic
+from marker_engine.detection import ABSENT, PRESENT, detect
+from marker_engine.evaluation import (AMBIGUOUS, FAIL, INDETERMINATE, NO_CABLE, PASS, UNKNOWN, evaluate,
                                          identify)
 
 SCENARIOS = [

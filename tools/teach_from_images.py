@@ -22,10 +22,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cable_inspection.calibration import TeachSession  # noqa: E402
-from cable_inspection.colors import ColourReference  # noqa: E402
-from cable_inspection.presets import PresetStore  # noqa: E402
-from cable_inspection.recipes import RecipeStore  # noqa: E402
+from marker_engine.calibration import TeachSession  # noqa: E402
+from marker_engine.colors import ColourReference  # noqa: E402
+from marker_engine.presets import PresetStore  # noqa: E402
+from marker_engine.recipes import RecipeStore  # noqa: E402
 
 
 def main(argv=None) -> int:

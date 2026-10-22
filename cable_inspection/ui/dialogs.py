@@ -5,9 +5,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
-from ..calibration import BODY, STRIPE, TeachSession, preset_from_patches
-from ..colors import ColourReference
-from ..geometry import clamp_rect, crop
+from marker_engine.calibration import BODY, STRIPE, TeachSession, preset_from_patches
+from marker_engine.colors import ColourReference
+from marker_engine.geometry import clamp_rect, crop
 from .widgets import ImageCanvas
 
 PATCH_COLOURS = {BODY: "#00e5ff", STRIPE: "#ff4fd8"}
