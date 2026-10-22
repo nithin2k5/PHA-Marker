@@ -69,7 +69,7 @@ with your camera (grab frame, drag patches, "Calibrate selected").
 | Control | Purpose |
 |---|---|
 | Start/Stop Camera | USB camera (index box; DirectShow on Windows) |
-| Open Image/Video, ◀ ▶ | development sources; select several images and step through them (also ←/→ keys, or `python main.py img1 img2 ...`) |
+| Open Image/Video, ◀ ▶ | development sources; select several images and step through them (also ←/→ keys, or `python main.py [--recipe=NAME] img1 img2 ...`) |
 | Demo Scene | generated synthetic scenes |
 | Draw ROI / Draw Stripe Region | regions in original-image pixels (Esc cancels) |
 | Teach Colours | teach from a good sample (auto and/or patches, multiple frames) |

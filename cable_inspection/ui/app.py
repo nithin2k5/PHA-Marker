@@ -661,7 +661,9 @@ class App:
 
 def main(argv: list[str] | None = None):
     import sys
-    files = list(sys.argv[1:] if argv is None else argv)
+    args = list(sys.argv[1:] if argv is None else argv)
+    recipe = next((a.split("=", 1)[1] for a in args if a.startswith("--recipe=")), None)
+    files = [a for a in args if not a.startswith("--")]
     try:
         from ctypes import windll
         windll.shcore.SetProcessDpiAwareness(1)
@@ -669,6 +671,8 @@ def main(argv: list[str] | None = None):
         pass
     root = tk.Tk()
     app = App(root)
+    if recipe:
+        root.after(200, lambda: app.select_recipe(recipe))
     if files:
         root.after(300, lambda: app.open_files(files))
     root.mainloop()
