@@ -122,9 +122,17 @@ def evaluate(m: Measurement, recipe, presets) -> Verdict:
         v.status = NO_CABLE
         v.reasons = ["no cable detected in the inspection region"] + m.notes
         return v
-    if m.presence != PRESENT or m.issues:
+    issues = list(m.issues)
+    ref_l = getattr(recipe, "lighting_ref_l", None)
+    if ref_l is not None and m.background_l is not None:
+        d_l = m.background_l - ref_l
+        obs["background_l"] = round(m.background_l, 1)
+        if abs(d_l) > float(cfg.get("lighting_tol_l", 10.0)):
+            issues.append(f"illumination differs from teach (fixture L* {m.background_l:.0f} vs "
+                          f"{ref_l:.0f}) - check lighting/exposure")
+    if m.presence != PRESENT or issues:
         v.status = INDETERMINATE
-        v.reasons = list(m.issues) or ["cable presence uncertain"]
+        v.reasons = issues or ["cable presence uncertain"]
         return v
 
     fails: list[str] = []

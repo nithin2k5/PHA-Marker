@@ -53,6 +53,7 @@ class TeachSession:
     cable_widths: list[float] = field(default_factory=list)
     spacings: list[float] = field(default_factory=list)
     stripe_widths: list[float] = field(default_factory=list)
+    background_l: list[float] = field(default_factory=list)
     log: list[str] = field(default_factory=list)
 
     # -- collecting ------------------------------------------------------------
@@ -85,6 +86,8 @@ class TeachSession:
                 self.stripe_samples.append(st.pixels)
             self.stripe_widths.append(st.width_px)
         self.cable_widths.append(m.cable_width_px)
+        if m.background_l is not None:
+            self.background_l.append(m.background_l)
         if len(m.stripes) >= 2:
             self.spacings.extend(np.diff([s.centre_px for s in m.stripes]).tolist())
         msg = (f"auto sample: width {m.cable_width_px:.1f}px, {len(m.stripes)} stripes, "
@@ -117,6 +120,8 @@ class TeachSession:
         recipe.stripe_ref = stripe.to_dict()
         if self.cable_widths:
             recipe.cable_width_px = float(np.median(self.cable_widths))
+        if self.background_l:
+            recipe.lighting_ref_l = round(float(np.median(self.background_l)), 1)
         if self.spacings:
             recipe.geometry["expected_spacing_px"] = round(float(np.median(self.spacings)), 1)
         if self.stripe_widths:
