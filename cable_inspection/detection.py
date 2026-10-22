@@ -79,6 +79,7 @@ class Measurement:
     edge_width_px: float = 0.0     # cable outline transition width (blur estimate)
     stripe_edge_width_px: float = 0.0  # stripe boundary transition width (preferred blur estimate)
     glare_frac: float = 0.0
+    background_l: float | None = None  # median L* of the fixture around the cable (lighting reference)
     body_lab: np.ndarray | None = None
     body_pixels: int = 0
     body_sample: np.ndarray | None = None     # subsample of clean body Lab pixels (for teaching)
@@ -137,8 +138,35 @@ def _peaks(profile: np.ndarray, min_rel: float = 0.12, min_sep: int = 3) -> list
     return sorted(kept)
 
 
-def _best_pair(profile: np.ndarray, wmin: float, wmax: float, centre_weight: float = 0.15):
-    """Choose the two edges (top, bottom) forming the most plausible cable."""
+def _row_variation(lab: np.ndarray) -> np.ndarray:
+    """Per-row robust variation along the axis (MAD of L*), insensitive to a few stripe columns."""
+    L = lab[..., 0]
+    med = np.median(L, axis=1, keepdims=True)
+    return np.median(np.abs(L - med), axis=1)
+
+
+def _signed_l_profile(lab: np.ndarray) -> np.ndarray:
+    """Mean signed d(L*)/dy per row: distinguishes a step (boundary) from a thin ridge (highlight)."""
+    return (cv2.Sobel(lab[..., 0], cv2.CV_32F, 0, 1, ksize=3) / 4.0).mean(axis=1)
+
+
+def _is_ridge(signed: np.ndarray, p: int, reach: float) -> bool:
+    """True if the edge at row p has an opposite-signed partner nearby (thin bright/dark line)."""
+    v = signed[p]
+    lo, hi = max(0, int(p - reach)), min(len(signed), int(p + reach) + 1)
+    seg = signed[lo:hi]
+    return bool(np.any(seg * np.sign(v) < -0.5 * abs(v)))
+
+
+def _best_pair(profile: np.ndarray, wmin: float, wmax: float, row_var: np.ndarray | None = None,
+               signed: np.ndarray | None = None, centre_weight: float = 0.15):
+    """Choose the two edges (top, bottom) forming the most plausible cable.
+
+    Besides edge strength, a real cable has (a) no longitudinal edge inside it
+    comparable to its outline - stripes are transverse - and (b) an interior
+    that is uniform along its length, unlike a strip of fixture background
+    between two unrelated edges.
+    """
     peaks = _peaks(profile)
     h = len(profile)
     pmax = float(profile.max()) if profile.size else 0.0
@@ -148,7 +176,16 @@ def _best_pair(profile: np.ndarray, wmin: float, wmax: float, centre_weight: flo
             width = b - a
             if width < wmin or width > wmax:
                 continue
-            score = min(profile[a], profile[b])
+            edge = min(profile[a], profile[b])
+            inner = [p for p in peaks if a + 0.15 * width < p < b - 0.15 * width
+                     and not (signed is not None and _is_ridge(signed, p, 0.3 * width))]
+            if inner and max(profile[p] for p in inner) > 0.6 * edge:
+                continue
+            score = edge
+            if row_var is not None:
+                lo, hi = int(a + 0.2 * width), int(b - 0.2 * width) + 1
+                if hi > lo:
+                    score = edge / (1.0 + float(np.median(row_var[lo:hi])) / 8.0)
             score -= centre_weight * pmax * abs((a + b) / 2.0 - h / 2.0) / (h / 2.0)
             if best is None or score > best[0]:
                 best = (score, a, b)
@@ -204,6 +241,11 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
         expected_width = recipe.cable_width_px
         if expected_width and recipe.image_size and recipe.image_size[1] != ih:
             expected_width *= ih / recipe.image_size[1]
+    cfg = dict(cfg)
+    spacing = recipe.geometry.get("expected_spacing_px")
+    if spacing and recipe.image_size and recipe.image_size[0] != iw:
+        spacing *= iw / recipe.image_size[0]
+    cfg["_expected_spacing"] = spacing if cfg.get("group_stripes", True) else None
 
     m = Measurement()
     roi_bgr = crop(frame, roi)
@@ -238,9 +280,9 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
     lab_s = cv2.resize(lab, (rw // ds, rh // ds), interpolation=cv2.INTER_AREA) if ds > 1 else lab
 
     def pair_score(img, angle, w_lo, w_hi):
-        g = _gradient_across(_rotate(img, angle))
-        prof = g.mean(axis=1)
-        return _best_pair(prof, w_lo, w_hi), prof
+        rimg = _rotate(img, angle)
+        prof = _gradient_across(rimg).mean(axis=1)
+        return _best_pair(prof, w_lo, w_hi, _row_variation(rimg), _signed_l_profile(rimg)), prof
 
     max_a = cfg["max_angle_deg"]
     best = None
@@ -263,12 +305,15 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
         m.notes.append("no pair of parallel cable edges found")
         m.elapsed_ms = (time.perf_counter() - t0) * 1000
         return m
-    angle = best[1]
-    for a in np.arange(best[1] - 1.0, best[1] + 1.0 + 1e-6, 0.25):
-        bp, _ = pair_score(lab_s, a, wmin / ds, wmax / ds)
-        if bp and bp[0] > best[0]:
+    # refine at full resolution, so the chosen angle and the final edge pair
+    # come from the same data
+    coarse = best[1]
+    best = None
+    for a in np.arange(coarse - 1.0, coarse + 1.0 + 1e-6, 0.25):
+        bp, _ = pair_score(lab, a, wmin, wmax)
+        if bp and (best is None or bp[0] > best[0]):
             best = (bp[0], a)
-            angle = a
+    angle = best[1] if best else coarse
 
     # -- straightened ROI --------------------------------------------------------
     rot_m = rotation_matrix((rw / 2.0, rh / 2.0), angle)
@@ -277,9 +322,10 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
     s_bgr = _rotate(roi_bgr, angle)
     grad = _gradient_across(s_lab)
     prof = grad.mean(axis=1)
-    bp = _best_pair(prof, wmin, wmax)
+    bp = _best_pair(prof, wmin, wmax, _row_variation(s_lab), _signed_l_profile(s_lab))
     if bp is None:
-        m.presence = ABSENT
+        m.presence = UNCERTAIN
+        m.issues.append("cable edges found at low resolution only - presence uncertain")
         m.elapsed_ms = (time.perf_counter() - t0) * 1000
         return m
     _, ia, ib = bp
@@ -290,6 +336,11 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
     m.edge_strength = float(min(prof[ia], prof[ib]))
     m.edge_snr = float(m.edge_strength / max(np.median(prof), 1e-3))
 
+    margin = int(0.3 * width) + 2
+    bg_rows = np.r_[0:max(0, ia - margin), min(rh, ib + margin):rh]
+    if len(bg_rows):
+        m.background_l = float(np.median(s_lab[bg_rows, :, 0]))
+
     # -- inspection region along the axis ----------------------------------
     corners = np.array([[insp[0], insp[1]], [insp[0] + insp[2], insp[1]],
                         [insp[0] + insp[2], insp[1] + insp[3]], [insp[0], insp[1] + insp[3]]], float)
@@ -299,22 +350,30 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
     x1 = int(np.clip(np.ceil(sc[:, 0].max()), x0 + 1, rw))
 
     # -- per-slice edge agreement (presence + occlusion) ----------------------
-    def slice_ok(c0, c1):
+    def slice_edges(c0, c1):
         sp = grad[:, c0:c1].mean(axis=1)
         ok = []
         for e in (ia, ib):
             lo, hi = max(0, e - 3), min(len(sp), e + 4)
             ok.append(sp[lo:hi].max() >= 0.4 * prof[e])
-        return all(ok)
+        return ok
+
+    def slice_ok(c0, c1):
+        return all(slice_edges(c0, c1))
+
+    def slice_hidden(c0, c1):
+        # one missing edge usually means poor contrast against the background
+        # (e.g. black cable over a dark slot); both missing means something covers it
+        return not any(slice_edges(c0, c1))
 
     n_slices = 12
     edges = np.linspace(0, rw, n_slices + 1).astype(int)
     consistency = np.mean([slice_ok(a, b) for a, b in zip(edges[:-1], edges[1:]) if b - a > 2])
     n_ins = max(3, (x1 - x0) // 12)
     ins_edges = np.linspace(x0, x1, n_ins + 1).astype(int)
-    ins_ok = [slice_ok(a, b) for a, b in zip(ins_edges[:-1], ins_edges[1:]) if b - a > 1]
+    ins_hidden = [slice_hidden(a, b) for a, b in zip(ins_edges[:-1], ins_edges[1:]) if b - a > 1]
     m.edge_consistency = float(consistency)
-    m.occluded_frac = float(1.0 - np.mean(ins_ok)) if ins_ok else 1.0
+    m.occluded_frac = float(np.mean(ins_hidden)) if ins_hidden else 1.0
 
     # -- edge sharpness (blur) -----------------------------------------------
     inside = s_lab[int(top + width * 0.25):int(bot - width * 0.25) + 1]
@@ -334,7 +393,7 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
     consistent = consistency >= cfg["edge_consistency_min"]
     if strong and consistent:
         m.presence = PRESENT
-    elif m.edge_strength < 0.6 * cfg["min_edge_strength"] or m.edge_snr < 0.6 * cfg["edge_snr_min"] \
+    elif m.edge_strength < cfg["min_edge_strength"] or m.edge_snr < 0.6 * cfg["edge_snr_min"] \
             or consistency < 0.3:
         m.presence = ABSENT
         m.notes.append("edges too weak or inconsistent for a cable")
@@ -346,6 +405,26 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
 
     # geometry for display
     m.cable_polygon = _to_image([[0, top], [rw, top], [rw, bot], [0, bot]], inv_m, roi)
+
+    # Local edge refinement: a real cable sags/bends slightly, so one straight
+    # line over the whole ROI can be 1-2 px off at the stripes.  Re-locate both
+    # edges using only the columns around the inspection region.
+    pad = int(max(x1 - x0, 3 * width) // 2)
+    lprof = grad[:, max(0, x0 - pad):min(rw, x1 + pad)].mean(axis=1)
+    reach = max(3, int(round(0.3 * width)))
+    local = []
+    for e in (ia, ib):
+        lo, hi = max(1, e - reach), min(rh - 1, e + reach + 1)
+        k = lo + int(np.argmax(lprof[lo:hi]))
+        local.append((k, _subpixel(lprof, k)))
+    lw = local[1][1] - local[0][1]
+    if abs(lw - width) <= 0.25 * width and lprof[local[0][0]] > 0.5 * prof[ia] \
+            and lprof[local[1][0]] > 0.5 * prof[ib]:
+        (ia, top), (ib, bot) = local
+        prof = lprof
+        width = bot - top
+        m.edge_top, m.edge_bottom, m.cable_width_px = float(top), float(bot), float(width)
+
     m.region_polygon = _to_image([[x0, top], [x1, top], [x1, bot], [x0, bot]], inv_m, roi)
     vy0 = max(0, int(top - width * 0.6))
     vy1 = min(rh, int(bot + width * 0.6) + 1)
@@ -358,7 +437,12 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
     if m.occluded_frac > cfg["occlusion_max"]:
         m.issues.append(f"cable obstructed in inspection region ({m.occluded_frac:.0%} of edges missing)")
 
-    _measure_band(m, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cfg, rh)
+    # per-column silhouette edge strength relative to the mean edge (for the crossing test)
+    edge_cols = []
+    for e in (ia, ib):
+        lo, hi = max(0, e - 2), min(rh, e + 3)
+        edge_cols.append(grad[lo:hi].max(axis=0) / max(float(prof[e]), 1e-3))
+    _measure_band(m, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cfg, rh, edge_cols)
     # Sharpness: painted stripe edges are true steps; the cable outline is
     # softened by its round profile, so it gets a looser limit.
     if m.stripe_edge_width_px > 0:
@@ -377,7 +461,7 @@ def _to_image(pts, inv_m, roi) -> np.ndarray:
     return p.astype(np.float32)
 
 
-def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cfg, rh):
+def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cfg, rh, edge_cols):
     width = bot - top
     inset = cfg["band_inset"] * width
     by0 = int(np.ceil(top + inset))
@@ -396,13 +480,17 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
     glare = cv2.dilate(glare.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
     valid = ~glare
 
-    # -- per-row body reference & difference map ---------------------------------
-    row_ref = np.zeros((bh, 3), np.float32)
-    for y in range(bh):
-        px = band_lab[y][valid[y]]
-        row_ref[y] = np.median(px, axis=0) if len(px) > bw * 0.2 else np.median(band_lab[y], axis=0)
-    diff = delta_e_2000(band_lab, row_ref[:, None, :]).astype(np.float32)
-    dv = diff[valid]
+    # -- local body reference & difference map ---------------------------------
+    # Real cables pick up reflections of the fixture, so brightness drifts along
+    # the cable.  The reference is a running median along the axis (per row,
+    # handling cylindrical shading), with a window wide enough that stripes and
+    # print stay a minority of its pixels.
+    win = int(max(cfg["ref_window_widths"] * width, 80))
+    ref = _local_reference(band_lab, valid, win)
+    diff = delta_e_2000(band_lab, ref).astype(np.float32)
+    # noise statistics near the inspection region only
+    n0, n1 = max(0, x0 - win // 2), min(bw, x1 + win // 2)
+    dv = diff[:, n0:n1][valid[:, n0:n1]]
     if dv.size:
         med = float(np.median(dv))
         mad = float(np.median(np.abs(dv - med))) * 1.4826
@@ -449,11 +537,15 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
     above = s_lab[max(0, int(top) - out_gap - 5):max(1, int(top) - out_gap)]
     below = s_lab[min(rh - 1, int(bot) + out_gap + 1):min(rh, int(bot) + out_gap + 6)]
 
+    if any(s_ == 0 or e_ == len(profile) for s_, e_ in strong_runs):
+        m.issues.append("stripe-like mark cut by the inspection region border - reposition cable or enlarge region")
+    n_lab, labels, stats, _ = cv2.connectedComponentsWithStats(closed.astype(np.uint8), connectivity=8)
+
     accepted: list[tuple[int, int, float, bool]] = []
     for s, e in strong_runs:
         w = e - s
         seg = closed[:, s:e]
-        fill = float(seg.mean()) if seg.size else 0.0
+        fill = float((seg | sub_glare[:, s:e]).mean()) if seg.size else 0.0
         c = float(profile[s:e].mean())
         reason = None
         if w < cfg["min_stripe_width_px"]:
@@ -462,11 +554,13 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
             reason = "too wide for a stripe"
         elif fill < cfg["min_fill"]:
             reason = "low fill (print/texture)"
+        elif _part_of_glyph(labels, stats, s, e, gap):
+            reason = "part of a printed character/marking"
         else:
             tilt = _tilt_deg(seg)
             if tilt is not None and abs(tilt) > 30:
                 reason = f"oblique ({tilt:.0f} deg) - not a transverse stripe"
-            elif _crosses_cable(above, below, x0 + s, x0 + e, bw,
+            elif _crosses_cable(above, below, x0 + s, x0 + e, bw, edge_cols=edge_cols, cand_px=
                                 band_lab[:, x0 + s:x0 + e][seg & valid[:, x0 + s:x0 + e]]):
                 reason = "object crossing the cable"
         if reason:
@@ -477,9 +571,9 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
             if reason == "too wide for a stripe":
                 m.issues.append("unexpected wide band of different colour in region")
             continue
-        if s == 0 or e == len(profile):
-            m.issues.append("stripe cut by the inspection region border - reposition cable or enlarge region")
         accepted.append((s, e, c, bool(sat_cols[s:e].mean() > 0.5)))
+
+    accepted = _keep_stripe_group(accepted, cfg.get("_expected_spacing"), m, x0)
 
     for s, e in weak_runs:
         if not any(a[0] < e and s < a[1] for a in accepted) and \
@@ -510,6 +604,11 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
     for r in m.rejected:
         excl[max(0, r.start - 2):min(bw, r.end + 2)] = True
     body_mask[:, excl] = False
+    # measure near the stripes: lighting/reflections vary along a real cable
+    span = max(x1 - x0, win)
+    near = np.zeros(bw, bool)
+    near[max(0, x0 - span):min(bw, x1 + span)] = True
+    body_mask[:, ~near] = False
     body_px = band_lab[body_mask]
     m.body_pixels = int(len(body_px))
     if m.body_pixels < 100:
@@ -518,13 +617,42 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
     m.body_lab, _ = robust_lab(body_px)
     m.body_sample = body_px[:: max(1, len(body_px) // 3000)]
     # uniformity along the cable (mixed/obstructed cable)
-    half = bw // 2
-    left = band_lab[:, :half][body_mask[:, :half]]
-    right = band_lab[:, half:][body_mask[:, half:]]
+    left_mask = body_mask.copy()
+    left_mask[:, x0:] = False
+    right_mask = body_mask.copy()
+    right_mask[:, :x1] = False
+    left, right = band_lab[left_mask], band_lab[right_mask]
     if len(left) > 50 and len(right) > 50:
         d = float(delta_e_2000(robust_lab(left)[0], robust_lab(right)[0]))
-        if d > 12:
+        if d > cfg["body_uniformity_max"]:
             m.issues.append(f"body colour not uniform along cable (dE {d:.0f})")
+
+
+def _local_reference(band_lab: np.ndarray, valid: np.ndarray, win: int) -> np.ndarray:
+    """Per-row running median along the axis, sampled on a coarse grid and interpolated."""
+    bh, bw = band_lab.shape[:2]
+    data = band_lab.astype(np.float32).copy()
+    data[~valid] = np.nan
+    step = max(4, win // 6)
+    centres = np.arange(0, bw, step)
+    if centres[-1] != bw - 1:
+        centres = np.append(centres, bw - 1)
+    samples = np.empty((bh, len(centres), 3), np.float32)
+    for i, c in enumerate(centres):
+        a, b = max(0, c - win // 2), min(bw, c + win // 2 + 1)
+        with np.errstate(all="ignore"):
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                med = np.nanmedian(data[:, a:b], axis=1)
+        fallback = np.median(band_lab[:, a:b], axis=1)
+        samples[:, i] = np.where(np.isnan(med), fallback, med)
+    xs = np.arange(bw)
+    ref = np.empty_like(band_lab, dtype=np.float32)
+    for y in range(bh):
+        for ch in range(3):
+            ref[y, :, ch] = np.interp(xs, centres, samples[y, :, ch])
+    return ref
 
 
 def _stripe_edge_width(band_lab, valid, stripes) -> float:
@@ -556,6 +684,67 @@ def _stripe_edge_width(band_lab, valid, stripes) -> float:
     return float(np.median(widths)) if widths else 0.0
 
 
+def _keep_stripe_group(accepted, spacing, m: Measurement, x0: int):
+    """Keep the main group of stripes when the stripe pitch has been taught.
+
+    Printed legends repeat along the cable at random positions relative to
+    the stripes, so they can fall inside the inspection region.  Candidates
+    more than ``2.5 x pitch`` away from the largest group are reported as
+    rejected instead of being counted.  (Trade-off: an extra stripe far from
+    the pattern is also excluded; disable with detection.group_stripes.)
+    """
+    if not spacing or len(accepted) < 2:
+        return accepted
+
+    def fit(g):
+        """How well a group matches the taught pitch (gaps near integer multiples)."""
+        if len(g) < 2:
+            return 0.0
+        cs = [(a[0] + a[1]) / 2.0 for a in g]
+        errs = [abs(d / spacing - round(d / spacing)) if round(d / spacing) >= 1 else 1.0
+                for d in np.diff(cs)]
+        return float(np.mean([e < 0.2 for e in errs]))
+
+    groups: list[list] = [[accepted[0]]]
+    for a in accepted[1:]:
+        prev = groups[-1][-1]
+        if (a[0] + a[1]) / 2.0 - (prev[0] + prev[1]) / 2.0 > 2.5 * spacing:
+            groups.append([a])
+        else:
+            groups[-1].append(a)
+    if len(groups) == 1:
+        return accepted
+    ranked = sorted(groups, key=lambda g: (len(g), fit(g)), reverse=True)
+    best = ranked[0]
+    if (len(ranked[1]), fit(ranked[1])) == (len(best), fit(best)):
+        m.issues.append("several separate stripe groups in region - ambiguous (print or misplaced stripes)")
+        return accepted
+    for g in groups:
+        if g is not best:
+            for a in g:
+                m.rejected.append(Candidate(x0 + a[0], x0 + a[1], "outside the stripe group (print/marking)"))
+    return best
+
+
+def _part_of_glyph(labels, stats, s, e, gap) -> bool:
+    """True if the run belongs to a connected shape clearly wider than the run itself.
+
+    A stripe is its own component.  The upright of a printed 'H' or 'C' is
+    joined to the rest of the character, so the component extends well beyond
+    the high-coverage columns.
+    """
+    ids, counts = np.unique(labels[:, s:e], return_counts=True)
+    run_area = labels[:, s:e].size
+    lo, hi = s, e
+    for i, c in zip(ids, counts):
+        if i == 0 or c < 0.05 * run_area:
+            continue
+        x, w = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_WIDTH]
+        lo, hi = min(lo, x), max(hi, x + w)
+    margin = max(gap + 1, 0.5 * (e - s))
+    return (s - lo) > margin or (hi - e) > margin
+
+
 def _tilt_deg(seg: np.ndarray) -> float | None:
     """Tilt of a stripe from the across-cable direction, from per-row centroids."""
     rows, xs = [], []
@@ -570,29 +759,34 @@ def _tilt_deg(seg: np.ndarray) -> float | None:
     return float(np.degrees(np.arctan(slope)))
 
 
-def _crosses_cable(above, below, s, e, bw, cand_px, de_thr: float = 14.0) -> bool:
+def _crosses_cable(above, below, s, e, bw, cand_px, edge_cols, de_thr: float = 14.0) -> bool:
     """True if something continues from the candidate out across a cable edge.
 
-    A painted stripe does not alter the fixture next to the cable; a finger,
-    tool or another wire lying across the cable does.  Flag when the
-    background next to the candidate changes on both sides, or changes on one
-    side to a colour similar to the candidate itself.
+    A painted stripe keeps the cable silhouette and does not change the
+    fixture next to the cable.  An object lying over the cable (finger, tool,
+    another wire) hides the silhouette edge where it crosses it and continues
+    outside in its own colour.  All three must hold on at least one side;
+    a cluttered background alone is not enough.
     """
-    if above.size == 0 or below.size == 0:
+    if above.size == 0 or below.size == 0 or not len(cand_px):
         return False
-    cand = np.median(cand_px, 0) if len(cand_px) else None
+    cand = np.median(cand_px, 0)
     pad = max(12, e - s)
-    changed = 0
-    for band in (above, below):
-        here = band[:, s:e].reshape(-1, 3)
+    for band, edge in ((above, edge_cols[0]), (below, edge_cols[1])):
+        # only the columns where the silhouette is actually lost matter: an
+        # object may cover just part of a wide candidate
+        lost_cols = np.flatnonzero(edge[s:e] < 0.35) + s
+        if len(lost_cols) < max(3, 0.25 * (e - s)):
+            continue
+        here = band[:, lost_cols].reshape(-1, 3)
         l0, l1 = max(0, s - pad - 8), max(0, s - 8)
         r0, r1 = min(bw, e + 8), min(bw, e + 8 + pad)
         ref = np.concatenate([band[:, l0:l1].reshape(-1, 3), band[:, r0:r1].reshape(-1, 3)])
         if len(here) == 0 or len(ref) == 0:
             continue
         here_med = np.median(here, 0)
-        if float(delta_e_2000(here_med, np.median(ref, 0))) > de_thr:
-            changed += 1
-            if cand is not None and float(delta_e_2000(here_med, cand)) < 2 * de_thr:
-                return True
-    return changed == 2
+        changed = float(delta_e_2000(here_med, np.median(ref, 0))) > de_thr
+        continues = float(delta_e_2000(here_med, cand)) < de_thr
+        if changed and continues:
+            return True
+    return False
