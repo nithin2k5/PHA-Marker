@@ -8,3 +8,6 @@ exports/
 eval_out/
 .idea/
 .vscode/
+
+# real fixture images stay local (not published)
+samples/real/
