@@ -40,6 +40,7 @@ class InspectionProcessor(threading.Thread):
         self._last_seq = 0
         self._last_preview = 0.0
         self._camera_was_ok = False
+        self._expect_restart = False
         self._last_phase = None
 
     # -- API used by the UI thread -------------------------------------------
@@ -83,6 +84,10 @@ class InspectionProcessor(threading.Thread):
                 self.identify = bool(c[1])
             elif kind == "presets":
                 self.presets = c[1]
+            elif kind == "source_change":
+                # deliberate switch to another image/video: not a camera failure
+                self._expect_restart = True
+                self.cycle.reset()
 
     def _emit_phase(self) -> None:
         if self.cycle.phase != self._last_phase:
@@ -110,6 +115,9 @@ class InspectionProcessor(threading.Thread):
         now = time.time()
 
         if not self.store.camera_ok:
+            if self._expect_restart:
+                time.sleep(0.02)
+                return
             if self._camera_was_ok or self.cycle.phase == ACQUIRING:
                 msg = self.store.error or "camera stopped"
                 self._post("camera_error", msg)
@@ -119,6 +127,7 @@ class InspectionProcessor(threading.Thread):
             time.sleep(0.05)
             return
         self._camera_was_ok = True
+        self._expect_restart = False
 
         frame = self.store.wait_newer(self._last_seq, timeout=0.1)
         self._finish(self.cycle.tick(time.time()))

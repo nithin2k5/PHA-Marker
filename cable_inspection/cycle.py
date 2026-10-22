@@ -95,6 +95,13 @@ class InspectionCycle:
             self.phase = IDLE
         self._present_run = self._absent_run = 0
 
+    def reset(self) -> None:
+        """Forget the latched result (operator switched to a different image/source)."""
+        self.latched = None
+        self._buffer = []
+        self.phase = WAIT_CABLE if self.auto else IDLE
+        self._present_run = self._absent_run = 0
+
     # -- triggers -------------------------------------------------------------
     def trigger(self, now: float, last_seq: int, source: str = "manual") -> None:
         """Start a new cycle; frames up to ``last_seq`` are considered stale."""
