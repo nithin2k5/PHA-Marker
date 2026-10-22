@@ -51,6 +51,7 @@ class Stripe:
     lab: np.ndarray
     polygon: np.ndarray        # 4x2 image coordinates
     saturated: bool = False
+    pixels: np.ndarray | None = None  # Lab pixels used for the colour (for teaching)
     colour_name: str = ""      # filled by evaluation
     colour_ok: bool | None = None
 
@@ -80,6 +81,7 @@ class Measurement:
     glare_frac: float = 0.0
     body_lab: np.ndarray | None = None
     body_pixels: int = 0
+    body_sample: np.ndarray | None = None     # subsample of clean body Lab pixels (for teaching)
     stripes: list[Stripe] = field(default_factory=list)
     rejected: list[Candidate] = field(default_factory=list)
     cable_polygon: np.ndarray | None = None
@@ -494,7 +496,7 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
         poly = _to_image([[x0 + s, top], [x0 + e, top], [x0 + e, bot], [x0 + s, bot]], inv_m, roi)
         m.stripes.append(Stripe(index=i + 1, start=x0 + s, end=x0 + e, centre_px=(s + e) / 2.0,
                                 width_px=float(e - s), coverage=c, lab=lab_med, polygon=poly,
-                                saturated=sat))
+                                saturated=sat, pixels=pix[:: max(1, len(pix) // 1500)]))
         if sat:
             m.issues.append(f"stripe {i + 1} saturated (overexposed) - reduce exposure")
 
@@ -514,6 +516,7 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
         m.issues.append("too few clean body pixels to measure cable colour")
         return
     m.body_lab, _ = robust_lab(body_px)
+    m.body_sample = body_px[:: max(1, len(body_px) // 3000)]
     # uniformity along the cable (mixed/obstructed cable)
     half = bw // 2
     left = band_lab[:, :half][body_mask[:, :half]]
