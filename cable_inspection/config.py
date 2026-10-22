@@ -30,7 +30,7 @@ DEFAULT_DETECTION = {
     "width_tolerance": 0.20,       # allowed deviation from taught cable width (fraction)
     "edge_snr_min": 3.0,           # edge peak strength / median gradient required for presence
     "edge_consistency_min": 0.6,   # fraction of slices that must agree on cable edges
-    "occlusion_max": 0.25,         # fraction of slices with missing edges tolerated
+    "occlusion_max": 0.34,         # fraction of slices with missing edges tolerated
     "band_inset": 0.18,            # fraction of cable width ignored at each edge (shading)
     "stripe_delta_e_min": 18.0,    # minimum colour difference of stripe vs body (CIEDE2000)
     "stripe_mad_k": 6.0,           # adaptive threshold = median + k * MAD of body differences
@@ -39,8 +39,9 @@ DEFAULT_DETECTION = {
     "max_stripe_width_px": 80,
     "merge_gap_px": 3,             # fragments closer than this along the axis are one stripe
     "min_fill": 0.5,               # pixel fill ratio inside a stripe band
-    "blur_min": 25.0,              # variance of Laplacian below this -> too blurred
-    "glare_max": 0.12,             # fraction of saturated pixels in band tolerated
+    "max_edge_width_px": 4.5,      # stripe edge transition wider than this -> too blurred
+    "min_edge_strength": 3.0,      # minimum Lab gradient of cable edges (colour-independent)
+    "glare_max": 0.10,             # fraction of region columns blinded by reflection tolerated
     "glare_v": 245,                # pixel value treated as saturated
     "dark_max": 0.98,              # fraction of near-black pixels in whole ROI -> underexposed
     "marginal_factor": 1.35,       # colour distance between 1.0 and this -> INDETERMINATE
