@@ -20,7 +20,7 @@ import time
 from .camera import FrameStore
 from .cycle import ACQUIRING, FrameResult, InspectionCycle
 from .detection import SetupError, detect
-from .evaluation import INDETERMINATE, Verdict, apply_identification, evaluate
+from .evaluation import apply_identification, evaluate
 
 
 class InspectionProcessor(threading.Thread):
@@ -99,41 +99,49 @@ class InspectionProcessor(threading.Thread):
     # -- main loop ------------------------------------------------------------------
     def run(self) -> None:
         while not self._halt.is_set():
-            self._handle_commands()
-            now = time.time()
+            try:
+                self._step()
+            except Exception as exc:  # noqa: BLE001 - never let the inspection thread die silently
+                self._post("setup_error", f"internal error: {exc!r}")
+                time.sleep(0.2)
 
-            if not self.store.camera_ok:
-                if self._camera_was_ok or self.cycle.phase == ACQUIRING:
-                    msg = self.store.error or "camera stopped"
-                    self._post("camera_error", msg)
-                    self._post("result", self.cycle.on_camera_error(msg, now))
-                self._camera_was_ok = False
-                self._emit_phase()
-                time.sleep(0.05)
-                continue
-            self._camera_was_ok = True
+    def _step(self) -> None:
+        self._handle_commands()
+        now = time.time()
 
-            frame = self.store.wait_newer(self._last_seq, timeout=0.1)
-            self._finish(self.cycle.tick(time.time()))
-            if frame is None:
-                self._emit_phase()
-                continue
-            self._last_seq = frame.seq
-            recipe = self.recipe
-            m = v = None
-            if recipe is not None and recipe.has_regions:
-                try:
-                    m = detect(frame.image, recipe)
-                    v = evaluate(m, recipe, self.presets)
-                except SetupError as exc:
-                    self._post("setup_error", str(exc))
-                except Exception as exc:  # noqa: BLE001 - keep the line running, report it
-                    v = Verdict(status=INDETERMINATE, reasons=[f"processing error: {exc}"])
-                    m = None
-                if m is not None and v is not None:
-                    fr = FrameResult(frame.seq, frame.timestamp, m, v, frame.image)
-                    self._finish(self.cycle.on_frame(fr, time.time()))
+        if not self.store.camera_ok:
+            if self._camera_was_ok or self.cycle.phase == ACQUIRING:
+                msg = self.store.error or "camera stopped"
+                self._post("camera_error", msg)
+                self._post("result", self.cycle.on_camera_error(msg, now))
+            self._camera_was_ok = False
             self._emit_phase()
-            if time.time() - self._last_preview >= self.preview_interval:
-                self._last_preview = time.time()
-                self._post("frame", frame.image, m, v)
+            time.sleep(0.05)
+            return
+        self._camera_was_ok = True
+
+        frame = self.store.wait_newer(self._last_seq, timeout=0.1)
+        self._finish(self.cycle.tick(time.time()))
+        if frame is None:
+            self._emit_phase()
+            return
+        self._last_seq = frame.seq
+        recipe = self.recipe
+        m = v = None
+        if recipe is not None and recipe.has_regions:
+            try:
+                m = detect(frame.image, recipe)
+                v = evaluate(m, recipe, self.presets)
+            except SetupError as exc:
+                self._post("setup_error", str(exc))
+            except Exception as exc:  # noqa: BLE001 - keep the line running, report it
+                # the frame is not used; a running cycle ends INDETERMINATE on timeout
+                self._post("setup_error", f"processing error: {exc!r}")
+                m = v = None
+            if m is not None and v is not None:
+                fr = FrameResult(frame.seq, frame.timestamp, m, v, frame.image)
+                self._finish(self.cycle.on_frame(fr, time.time()))
+        self._emit_phase()
+        if time.time() - self._last_preview >= self.preview_interval:
+            self._last_preview = time.time()
+            self._post("frame", frame.image, m, v)
