@@ -124,7 +124,7 @@ def _rotate(img: np.ndarray, angle: float, interp=cv2.INTER_LINEAR) -> np.ndarra
     return cv2.warpAffine(img, m, (w, h), flags=interp, borderMode=cv2.BORDER_REPLICATE)
 
 
-def _peaks(profile: np.ndarray, min_rel: float = 0.12, min_sep: int = 3) -> list[int]:
+def _peaks(profile: np.ndarray, min_rel: float = 0.12, min_sep: int = 3, max_peaks: int = 12) -> list[int]:
     p = profile
     if p.size < 3 or p.max() <= 0:
         return []
@@ -135,12 +135,14 @@ def _peaks(profile: np.ndarray, min_rel: float = 0.12, min_sep: int = 3) -> list
     for i in idx:
         if all(abs(i - k) >= min_sep for k in kept):
             kept.append(i)
+            if len(kept) >= max_peaks:
+                break
     return sorted(kept)
 
 
 def _row_variation(lab: np.ndarray) -> np.ndarray:
     """Per-row robust variation along the axis (MAD of L*), insensitive to a few stripe columns."""
-    L = lab[..., 0]
+    L = lab[:, ::3, 0]
     med = np.median(L, axis=1, keepdims=True)
     return np.median(np.abs(L - med), axis=1)
 
@@ -170,6 +172,8 @@ def _best_pair(profile: np.ndarray, wmin: float, wmax: float, row_var: np.ndarra
     peaks = _peaks(profile)
     h = len(profile)
     pmax = float(profile.max()) if profile.size else 0.0
+    reach = 0.3 * wmax
+    ridge = {p: signed is not None and _is_ridge(signed, p, reach) for p in peaks}
     best = None
     for i, a in enumerate(peaks):
         for b in peaks[i + 1:]:
@@ -177,8 +181,7 @@ def _best_pair(profile: np.ndarray, wmin: float, wmax: float, row_var: np.ndarra
             if width < wmin or width > wmax:
                 continue
             edge = min(profile[a], profile[b])
-            inner = [p for p in peaks if a + 0.15 * width < p < b - 0.15 * width
-                     and not (signed is not None and _is_ridge(signed, p, 0.3 * width))]
+            inner = [p for p in peaks if a + 0.15 * width < p < b - 0.15 * width and not ridge[p]]
             if inner and max(profile[p] for p in inner) > 0.6 * edge:
                 continue
             score = edge
@@ -276,7 +279,8 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
         wmin, wmax = min(wmin, wmax), max(wmin, wmax)
 
     # -- rotation search (half resolution) ------------------------------------
-    ds = 2 if rw > 500 else 1
+    # coarse search on roughly 400 x 60 px, but keep the cable at least ~6 px wide
+    ds = int(max(1, min(np.ceil(max(rw / 400.0, rh / 60.0)), round(wmin / 6.0))))
     lab_s = cv2.resize(lab, (rw // ds, rh // ds), interpolation=cv2.INTER_AREA) if ds > 1 else lab
 
     def pair_score(img, angle, w_lo, w_hi):
@@ -305,11 +309,15 @@ def detect(frame: np.ndarray, recipe, expected_width: float | None = None) -> Me
         m.notes.append("no pair of parallel cable edges found")
         m.elapsed_ms = (time.perf_counter() - t0) * 1000
         return m
-    # refine at full resolution, so the chosen angle and the final edge pair
-    # come from the same data
+    # refine at low resolution, then confirm the final +-0.25 deg at full
+    # resolution so the chosen angle and the final edge pair use the same data
+    for a in np.arange(best[1] - 1.0, best[1] + 1.0 + 1e-6, 0.25):
+        bp, _ = pair_score(lab_s, a, wmin / ds, wmax / ds)
+        if bp and bp[0] > best[0]:
+            best = (bp[0], a)
     coarse = best[1]
     best = None
-    for a in np.arange(coarse - 1.0, coarse + 1.0 + 1e-6, 0.25):
+    for a in (coarse - 0.25, coarse, coarse + 0.25) if ds > 1 else (coarse,):
         bp, _ = pair_score(lab, a, wmin, wmax)
         if bp and (best is None or bp[0] > best[0]):
             best = (bp[0], a)
@@ -629,30 +637,31 @@ def _measure_band(m: Measurement, s_lab, s_bgr, top, bot, x0, x1, inv_m, roi, cf
 
 
 def _local_reference(band_lab: np.ndarray, valid: np.ndarray, win: int) -> np.ndarray:
-    """Per-row running median along the axis, sampled on a coarse grid and interpolated."""
+    """Per-row running median along the axis, sampled on a coarse grid and interpolated.
+
+    Saturated pixels are replaced by their row median first so plain (fast)
+    medians can be used.
+    """
     bh, bw = band_lab.shape[:2]
-    data = band_lab.astype(np.float32).copy()
-    data[~valid] = np.nan
-    step = max(4, win // 6)
+    data = band_lab.astype(np.float32, copy=True)
+    if not valid.all():
+        row_med = np.median(band_lab, axis=1)  # (bh, 3)
+        inv = ~valid
+        data[inv] = np.broadcast_to(row_med[:, None, :], data.shape)[inv]
+    step = max(4, win // 3)
     centres = np.arange(0, bw, step)
     if centres[-1] != bw - 1:
         centres = np.append(centres, bw - 1)
     samples = np.empty((bh, len(centres), 3), np.float32)
     for i, c in enumerate(centres):
         a, b = max(0, c - win // 2), min(bw, c + win // 2 + 1)
-        with np.errstate(all="ignore"):
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                med = np.nanmedian(data[:, a:b], axis=1)
-        fallback = np.median(band_lab[:, a:b], axis=1)
-        samples[:, i] = np.where(np.isnan(med), fallback, med)
-    xs = np.arange(bw)
-    ref = np.empty_like(band_lab, dtype=np.float32)
-    for y in range(bh):
-        for ch in range(3):
-            ref[y, :, ch] = np.interp(xs, centres, samples[y, :, ch])
-    return ref
+        samples[:, i] = np.median(data[:, a:b], axis=1)
+    xs = np.arange(bw, dtype=np.float32)
+    idx = np.clip(np.searchsorted(centres, xs, side="right") - 1, 0, len(centres) - 2)
+    c0 = centres[idx].astype(np.float32)
+    c1 = centres[idx + 1].astype(np.float32)
+    t = ((xs - c0) / np.maximum(c1 - c0, 1.0))[None, :, None]
+    return samples[:, idx] * (1 - t) + samples[:, idx + 1] * t
 
 
 def _stripe_edge_width(band_lab, valid, stripes) -> float:
@@ -661,8 +670,12 @@ def _stripe_edge_width(band_lab, valid, stripes) -> float:
     if not good:
         return 0.0
     w = np.array([1.0, 0.7, 0.7], np.float32)
-    cols = np.zeros((band_lab.shape[1], 3), np.float32)
-    for x in range(band_lab.shape[1]):
+    bw = band_lab.shape[1]
+    cols = np.zeros((bw, 3), np.float32)
+    need = np.zeros(bw, bool)
+    for st in good:
+        need[max(0, st.start - 10):min(bw, st.end + 10)] = True
+    for x in np.flatnonzero(need):
         px = band_lab[:, x][valid[:, x]]
         cols[x] = np.median(px, 0) if len(px) else np.median(band_lab[:, x], 0)
     grad = np.linalg.norm(np.diff(cols, axis=0) * w, axis=1)
