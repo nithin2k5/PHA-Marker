@@ -30,7 +30,9 @@ python main.py
 Tkinter ships with the python.org installers. On Linux, install `python3-tk`.
 
 Development images: `python tools/make_samples.py` writes synthetic scenes and an automatic-mode
-video to `samples/synthetic/`. The **Demo Scene** menu in the app also generates scenes on the fly.
+video to `samples/synthetic/`. The **Demo Scene** menu in the app also generates scenes on the fly; they use a different (synthetic)
+geometry, so judge them with a recipe whose regions were drawn on a demo scene, not with
+EXAMPLE-BLK-3xGRY.
 
 ## Operator workflow
 
@@ -178,7 +180,9 @@ Judged by that recipe, with **Identify type** on and one recipe per colour taugh
 | white | INDETERMINATE, `stripe saturated - reduce exposure` | INDETERMINATE |
 
 Each colour recipe was taught on the frame it was tested on, so the self-matches are not
-independent. What these frames do show is that the colours separate cleanly from each other and
+independent. Those colour recipes were removed afterwards: the shipped configuration contains only the
+main recipe **EXAMPLE-BLK-3xGRY**. With it, other cable types FAIL as wrong colour, and **Identify
+type** reports UNKNOWN until a recipe is taught for each type. What these frames do show is that the colours separate cleanly from each other and
 that the print is rejected in every frame. The white frame's stripes are pure 255 (clipped), so their
 real colour cannot be measured: with the production camera, reduce exposure until white stripes are
 below saturation.
@@ -284,7 +288,7 @@ marker_engine/                  standalone engine (copy this folder to reuse)
   cycle.py                      inspection cycle state machine (latching, auto re-arm)
   processing.py                 processing thread (camera -> detection -> cycle -> UI queue)
   annotate.py, export.py, alerts.py, synthetic.py
-config/recipes.json             sample recipes (DEMO for synthetic scenes; EXAMPLE-BLK-3xGRY and BLK-3x<colour> for the fixture frames)
+config/recipes.json             the main recipe EXAMPLE-BLK-3xGRY (black cable, 3 grey stripes, taught on the fixture camera)
 config/colour_presets.json      editable colour presets
 tools/evaluate.py               false accept / reject / indeterminate measurement
 tools/make_samples.py           synthetic development images and video

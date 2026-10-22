@@ -239,7 +239,7 @@ class App:
     def _load_recipe_list(self, select: str | None = None):
         names = self.recipes.names()
         if not names:
-            r = Recipe("DEMO-BLK-3xWHT", notes="created automatically")
+            r = Recipe("NEW-RECIPE", notes="created automatically - draw regions and teach")
             self.recipes.save(r)
             names = self.recipes.names()
         self.recipe_cb["values"] = names
