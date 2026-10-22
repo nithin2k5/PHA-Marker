@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import queue
-import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -52,8 +51,13 @@ class App:
     def __init__(self, root: tk.Tk, recipes: RecipeStore | None = None, presets: PresetStore | None = None):
         self.root = root
         root.title(f"{APP_NAME}  v{__version__}")
-        root.geometry("1500x920")
-        root.minsize(1100, 700)
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"{min(1500, sw - 40)}x{min(920, sh - 90)}+10+10")
+        root.minsize(1000, 640)
+        try:
+            root.state("zoomed")  # maximised on Windows
+        except tk.TclError:
+            pass
         self.recipes = recipes or RecipeStore()
         self.presets = presets or PresetStore()
         self.store = FrameStore()
@@ -73,8 +77,8 @@ class App:
 
         self._build_styles()
         self._build_toolbar()
+        self._build_statusbar()   # packed before the body so it is never squeezed out
         self._build_body()
-        self._build_statusbar()
         self._load_recipe_list()
         self.processor.start()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -154,9 +158,10 @@ class App:
 
         right = ttk.Frame(body, width=440)
         body.add(right, weight=1)
+        self.root.after(200, lambda: body.sashpos(0, max(600, self.root.winfo_width() - 480)))
 
         # result indicator
-        self.result_lbl = tk.Label(right, text="READY", font=("Segoe UI", 34, "bold"),
+        self.result_lbl = tk.Label(right, text="READY", font=("Segoe UI", 28, "bold"),
                                    bg=STATUS_STYLE["READY"][0], fg="white", height=1)
         self.result_lbl.pack(fill="x")
         self.reason_lbl = tk.Label(right, text="Select a recipe, position the cable and press INSPECT.",
@@ -194,13 +199,13 @@ class App:
         # magnified stripe view
         mf = ttk.LabelFrame(right, text="Stripe region (straightened, enlarged)", padding=4)
         mf.pack(fill="x")
-        self.mag = ImageCanvas(mf, height=200)
+        self.mag = ImageCanvas(mf, height=170)
         self.mag.pack(fill="x")
 
         # measurements
         ms = ttk.LabelFrame(right, text="Measurements", padding=4)
         ms.pack(fill="both", expand=True, pady=6)
-        self.meas_txt = tk.Text(ms, height=14, wrap="word", font=("Consolas", 9), relief="flat")
+        self.meas_txt = tk.Text(ms, height=8, wrap="word", font=("Consolas", 9), relief="flat")
         self.meas_txt.pack(fill="both", expand=True)
         self.meas_txt.tag_configure("bad", foreground="#d93025")
         self.meas_txt.tag_configure("good", foreground="#1e8e3e")
@@ -357,3 +362,276 @@ class App:
         self.dirty = True
         self._push_recipe()
         self._clear_result("Region changed - previous result cleared.")
+
+    # ------------------------------------------------------------------ camera
+    def _start_source(self, source, label: str):
+        self.stop_camera()
+        self.camera = CameraWorker(source, self.store, self.cam_events)
+        self.camera.start()
+        self.btn_cam.config(text="Stop Camera")
+        self.cam_status.config(text=f"Camera: starting {label}...")
+        self.preview_hint.config(text="")
+
+    def toggle_camera(self):
+        if self.camera is not None:
+            self.stop_camera()
+            return
+        try:
+            idx = int(self.cam_index.get())
+        except ValueError:
+            idx = 0
+        settings = dict(self.recipe.camera) if self.recipe else {}
+        settings["index"] = idx
+        self._start_source(make_source(idx, settings), f"USB camera {idx}")
+
+    def stop_camera(self):
+        if self.camera is not None:
+            self.camera.stop()
+            self.camera.join(timeout=2.0)
+            self.camera = None
+        self.btn_cam.config(text="Start Camera")
+
+    def open_file(self):
+        path = filedialog.askopenfilename(
+            title="Open image or video", initialdir=str(SAMPLES_DIR if SAMPLES_DIR.exists() else Path.cwd()),
+            filetypes=[("Images/videos", "*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.mp4 *.avi *.mov *.mkv"),
+                       ("All files", "*.*")])
+        if path:
+            self._start_source(make_source(path), Path(path).name)
+
+    def load_demo(self, name: str):
+        scene = synthetic.make(**DEMO_SCENES[name])
+        self._start_source(ImageSource(scene.image, name=f"demo: {name}"), name)
+        r = self.recipe
+        if r is not None and not r.has_regions:
+            # demo scenes share the nominal fixture geometry
+            r.roi, r.inspection_region = scene.roi, scene.inspection_region
+            r.image_size = (scene.image.shape[1], scene.image.shape[0])
+            self.dirty = True
+            self._push_recipe()
+
+    def _current_frame(self):
+        f = self.store.latest()
+        return None if f is None else f.image.copy()
+
+    # ------------------------------------------------------------------ dialogs
+    def teach(self):
+        if self.recipe is None:
+            return
+        if self._current_frame() is None:
+            messagebox.showinfo("Teach", "Start the camera (or open an image) with a GOOD cable in place.")
+            return
+        TeachDialog(self.root, self.recipe, self._current_frame, self._recipe_updated)
+
+    def settings(self):
+        if self.recipe is not None:
+            SettingsDialog(self.root, self.recipe, self._recipe_updated)
+
+    def edit_presets(self):
+        PresetDialog(self.root, self.presets, self._current_frame,
+                     self.recipe.roi if self.recipe else None, self._presets_changed)
+
+    def _presets_changed(self):
+        self.processor.send("presets", self.presets)
+        colours = self.presets.names()
+        self.body_cb["values"] = colours
+        self.stripe_cb["values"] = colours
+        self._push_recipe()
+
+    # ------------------------------------------------------------------ inspection
+    def inspect(self):
+        if self.recipe is None or not self.recipe.has_regions:
+            messagebox.showinfo("Inspect", "Draw the cable ROI and stripe region first.")
+            return
+        self._clear_result("Inspecting - keep the cable still...", status="INSPECTING")
+        self.processor.send("trigger")
+
+    def toggle_auto(self):
+        self.auto_on = not self.auto_on
+        if self.auto_on and (self.recipe is None or not self.recipe.has_regions):
+            self.auto_on = False
+            messagebox.showinfo("Automatic inspection", "Draw the cable ROI and stripe region first.")
+            return
+        self.processor.send("auto", self.auto_on)
+        self.btn_auto.config(text="Stop Automatic Inspection" if self.auto_on else "Start Automatic Inspection")
+
+    def acknowledge(self):
+        self.alert_active = False
+        self.sounder.acknowledge()
+        self.btn_ack.config(state="disabled")
+        if self.latched is not None:
+            self._show_status(self.latched.status)
+
+    def _sound_changed(self):
+        self.sounder.enabled = self.sound_var.get()
+        if not self.sounder.enabled:
+            self.sounder.acknowledge()
+
+    def export(self):
+        if self.latched is None:
+            messagebox.showinfo("Export", "No inspection result to export yet.")
+            return
+        folder = filedialog.askdirectory(title="Export result to folder", initialdir=str(EXPORT_DIR.parent))
+        if not folder:
+            return
+        files = export_result(self.latched, folder, self.recipe)
+        messagebox.showinfo("Export", "Saved:\n" + "\n".join(p.name for p in files))
+
+    # ------------------------------------------------------------------ results
+    def _show_status(self, status: str, reason: str | None = None):
+        bg, fg = STATUS_STYLE.get(status, ("#3c4043", "white"))
+        self.result_lbl.config(text=status, bg=bg, fg=fg)
+        if reason is not None:
+            self.reason_lbl.config(text=reason)
+
+    def _clear_result(self, reason: str, status: str = "READY"):
+        self.latched = None
+        if self.alert_active:
+            self.acknowledge()
+        self._show_status(status, reason)
+        self.meas_txt.delete("1.0", "end")
+
+    def _on_result(self, res):
+        self.latched = res
+        v = res.verdict
+        text = "\n".join(v.reasons[:4]) if v.reasons else ""
+        if v.identified:
+            extra = f"  ({', '.join(v.identify_candidates)})" if len(v.identify_candidates) > 1 else ""
+            text = f"Identified type: {v.identified}{extra}\n{text}"
+        self._show_status(v.status, text)
+        self._write_measurements(res)
+        if res.frame is not None:
+            mag = magnified_view(res.frame.measurement)
+            if mag is not None:
+                self.mag.show(mag)
+        if v.status in (FAIL, CAMERA_ERROR):
+            self.alert_active = True
+            self.btn_ack.config(state="normal")
+            if self.sound_var.get():
+                self.sounder.alarm()
+            else:
+                self.root.bell()
+
+    def _write_measurements(self, res):
+        t = self.meas_txt
+        t.delete("1.0", "end")
+        v = res.verdict
+
+        def ins(s, tag=None):
+            t.insert("end", s, tag)
+
+        ins(f"Cycle {res.cycle_id}  ({res.trigger}, {res.frames_used} frames)\n", "head")
+        ins(f"Recipe {v.recipe_name} v{v.recipe_version}\n")
+        e, o = v.expected, v.observed
+        if e:
+            ins(f"Expected: {e.get('body_colour')} body, {e.get('stripe_count')} x {e.get('stripe_colour')}\n")
+        if o:
+            ins(f"Observed: {o.get('body_colour', '-')} body {o.get('body_lab') or ''}\n")
+            ins(f"          {o.get('stripe_count', 0)} stripes, angle {o.get('angle_deg', 0):.1f} deg, "
+                f"width {o.get('cable_width_px', 0):.0f}px\n")
+            for s in o.get("stripes", []):
+                sp = f" spacing {s['spacing_px']:.0f}" if "spacing_px" in s else ""
+                mm = f" ({s['width_mm']}mm)" if "width_mm" in s else ""
+                ins(f"  #{s['index']} {s['colour']:<12} w {s['width_px']:.0f}px{mm} "
+                    f"pos {s['position_px']:.0f}{sp}\n")
+        if v.checks:
+            ins("Checks:\n", "head")
+            for name, ok, detail in v.checks:
+                tag = "good" if ok else "bad" if ok is False else "warn"
+                mark = "OK " if ok else "NOK" if ok is False else " ? "
+                ins(f"  [{mark}] {name}: {detail}\n", tag)
+        if res.frame_statuses and len(set(res.frame_statuses)) > 1:
+            ins(f"Frame verdicts: {res.frame_statuses}\n", "warn")
+        if res.frame is not None and res.frame.measurement.rejected:
+            ins("Rejected candidates:\n", "head")
+            for c in res.frame.measurement.rejected[:8]:
+                ins(f"  x{c.start}-{c.end}: {c.reason}\n")
+
+    # ------------------------------------------------------------------ polling (UI thread)
+    def _poll(self):
+        latest = None
+        try:
+            while True:
+                msg = self.ui_queue.get_nowait()
+                kind = msg[0]
+                if kind == "frame":
+                    latest = msg
+                elif kind == "result":
+                    self._on_result(msg[1])
+                elif kind == "phase":
+                    self._on_phase(msg[1])
+                elif kind == "setup_error":
+                    self.live_status.config(text=f"Setup: {msg[1]}")
+                elif kind == "camera_error":
+                    self.cam_status.config(text=f"Camera: ERROR - {msg[1]}")
+        except queue.Empty:
+            pass
+        try:
+            while True:
+                kind, text = self.cam_events.get_nowait()
+                prefix = "ERROR - " if kind == "camera_error" else ""
+                self.cam_status.config(text=f"Camera: {prefix}{text}")
+        except queue.Empty:
+            pass
+        if latest is not None:
+            self._render(latest[1], latest[2], latest[3])
+        self.root.after(30, self._poll)
+
+    def _on_phase(self, phase: str):
+        self.phase_status.config(text=f"Cycle: {phase}{'  [AUTO]' if self.auto_on else ''}")
+        if phase == ACQUIRING and self.result_lbl.cget("text") != "INSPECTING":
+            self._clear_result("Inspecting - keep the cable still...", status="INSPECTING")
+        elif phase == WAIT_REMOVAL and self.latched is not None:
+            self.preview_hint.config(text="Remove the cable to arm the next automatic inspection.")
+        elif phase == WAIT_CABLE:
+            self.preview_hint.config(text="Automatic mode armed - place the next cable.")
+
+    def _render(self, image, m, v):
+        self.live_frame = image
+        r = self.recipe
+        roi = r.roi if r else None
+        region = r.inspection_region if r else None
+        if self.preview.selecting:
+            self.preview.show(annotate(image, None, None, roi, region))
+            return
+        status = self.latched.status if self.latched is not None else None
+        self.preview.show(annotate(image, m, status, roi, region))
+        if m is not None:
+            self.perf_status.config(text=f"processing {m.elapsed_ms:.0f} ms")
+            live = f"live: {m.presence.lower()}"
+            if m.presence != "ABSENT":
+                live += f", {len(m.stripes)} stripe(s), angle {m.angle_deg:.1f} deg"
+            if m.issues:
+                live += f"  ({m.issues[0]})"
+            self.live_status.config(text=live)
+            if self.latched is None:
+                mag = magnified_view(m)
+                if mag is not None:
+                    self.mag.show(mag)
+
+    def _flash_tick(self):
+        if self.alert_active and self.latched is not None:
+            self._flash = not self._flash
+            bg, fg = STATUS_STYLE.get(self.latched.status, ("#000000", "white"))
+            self.result_lbl.config(bg=bg if self._flash else "#ffffff", fg=fg if self._flash else bg)
+        self.root.after(450, self._flash_tick)
+
+    def on_close(self):
+        if self.dirty and self.recipe and messagebox.askyesno(
+                "Unsaved changes", f"Save changes to recipe '{self.recipe.name}' before closing?"):
+            self.recipes.save(self.recipe)
+        self.sounder.acknowledge()
+        self.processor.stop()
+        self.stop_camera()
+        self.root.destroy()
+
+
+def main():
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:  # noqa: BLE001 - not Windows
+        pass
+    root = tk.Tk()
+    App(root)
+    root.mainloop()
